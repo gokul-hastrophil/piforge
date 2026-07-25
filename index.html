@@ -5,18 +5,38 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pi Mass Flasher</title>
 <style>
-  /* Shop-floor kiosk: one deliberate dark theme, huge type, unmissable states */
+  /* Raspberry Pi brand palette: signature red + Imager-style go-green */
   :root {
-    --bg: #14181D;
-    --panel: #1C2229;
-    --line: #2C353F;
-    --ink: #E8ECEF;
-    --muted: #8B98A5;
-    --go: #2FB56B;
-    --go-press: #27995B;
-    --bad: #E24C4C;
-    --warn: #E2A33C;
-    --accent: #4C97E2;
+    --bg: #F5F5F3;
+    --panel: #FFFFFF;
+    --line: #E3E1DC;
+    --ink: #1B1B1B;
+    --muted: #767672;
+    --red: #C51A4A;
+    --red-press: #A0143C;
+    --red-tint: #FBE7ED;
+    --go: #3BAA47;
+    --go-press: #2E8A38;
+    --bad: #D33232;
+    --warn: #C8790A;
+    --accent: #C51A4A;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17181A;
+      --panel: #201F22;
+      --line: #343336;
+      --ink: #F2F0EE;
+      --muted: #9C9994;
+      --red: #E23B67;
+      --red-press: #C51A4A;
+      --red-tint: #3A1620;
+      --go: #4FC95C;
+      --go-press: #3BAA47;
+      --bad: #E9605F;
+      --warn: #E0A030;
+      --accent: #E23B67;
+    }
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; }
@@ -27,18 +47,18 @@
   }
   header {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 1rem 1.5rem; border-bottom: 1px solid var(--line);
+    padding: 1rem 1.5rem; background: var(--red); color: #fff;
   }
-  header .brand { font-size: 1.05rem; font-weight: 650; letter-spacing: 0.02em; }
-  header .brand span { color: var(--muted); font-weight: 400; }
-  .counter { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 0.95rem; }
-  .counter b { color: var(--ink); font-size: 1.2rem; }
+  header .brand { font-size: 1.1rem; font-weight: 700; letter-spacing: 0.01em; }
+  header .brand span { color: rgba(255,255,255,0.78); font-weight: 400; }
+  .counter { font-variant-numeric: tabular-nums; color: rgba(255,255,255,0.85); font-size: 0.95rem; }
+  .counter b { color: #fff; font-size: 1.2rem; }
 
   .offline-banner, .root-banner {
     display: none; text-align: center; padding: 0.5rem; font-weight: 650;
   }
   .offline-banner { background: var(--bad); color: #fff; }
-  .root-banner { background: var(--warn); color: #14181D; }
+  .root-banner { background: var(--warn); color: #1B1B1B; }
 
   main {
     flex: 1; display: grid; grid-template-columns: 380px 1fr;
@@ -50,31 +70,57 @@
   .panel {
     background: var(--panel); border: 1px solid var(--line);
     border-radius: 12px; padding: 1.2rem 1.4rem;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
   }
   .panel h2 {
     margin: 0 0 1rem; font-size: 0.8rem; text-transform: uppercase;
     letter-spacing: 0.08em; color: var(--muted); font-weight: 650;
   }
   label { display: block; font-size: 0.8rem; color: var(--muted); margin: 0.7rem 0 0.25rem; }
-  input[type=text], input[type=password] {
+  input[type=text], input[type=password], select {
     width: 100%; font: inherit; font-size: 1rem; color: var(--ink);
     background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
     padding: 0.55rem 0.7rem; outline: none;
   }
-  input:focus-visible { border-color: var(--accent); }
+  select { appearance: none; cursor: pointer;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%23767672'><path d='M5.5 7.5l4.5 4.5 4.5-4.5z'/></svg>");
+    background-repeat: no-repeat; background-position: right 0.6rem center; background-size: 1.1rem;
+    padding-right: 2rem;
+  }
+  input:focus-visible, select:focus-visible { border-color: var(--accent); }
   .row { display: flex; gap: 0.7rem; }
-  .row > div { flex: 1; }
+  .row > div { flex: 1; min-width: 0; }
   .check { display: flex; align-items: center; gap: 0.55rem; margin-top: 0.8rem; font-size: 0.9rem; }
   .check input { width: 1.05rem; height: 1.05rem; accent-color: var(--go); }
 
+  .pwrap { position: relative; }
+  .pwrap input { padding-right: 2.4rem; }
+  .pwrap .eye {
+    position: absolute; right: 0.5rem; top: 50%; transform: translateY(-50%);
+    background: none; border: none; cursor: pointer; font-size: 1.05rem;
+    color: var(--muted); padding: 0.2rem 0.3rem; line-height: 1;
+  }
+  .pwrap .eye:hover { color: var(--ink); }
+
+  .btnrow { display: flex; gap: 0.6rem; margin-top: 1.2rem; }
+  button.primary, button.secondary {
+    font: inherit; font-weight: 700; color: #fff; border: none; border-radius: 12px;
+    cursor: pointer;
+  }
   button.primary {
-    font: inherit; font-size: 1.35rem; font-weight: 700; color: #fff;
-    background: var(--go); border: none; border-radius: 14px;
-    padding: 0.9rem 1rem; cursor: pointer; width: 100%; margin-top: 1.2rem;
+    font-size: 1.3rem; background: var(--go); padding: 0.9rem 1rem; width: 100%;
   }
   button.primary:hover:not(:disabled) { background: var(--go-press); }
-  button.primary:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+  button.primary:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
   button.primary:disabled { background: var(--line); color: var(--muted); cursor: not-allowed; }
+  button.secondary {
+    font-size: 0.85rem; background: transparent; color: var(--muted);
+    border: 1px solid var(--line); border-radius: 8px; padding: 0.5rem 0.8rem;
+    white-space: nowrap;
+  }
+  button.secondary:hover { color: var(--ink); border-color: var(--muted); }
+  button.secondary.saved { color: var(--go); border-color: var(--go); }
+
   .warnbox { color: var(--warn); font-size: 0.85rem; margin-top: 0.9rem; }
   .warnbox code { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 0.05rem 0.3rem; }
 
@@ -98,7 +144,7 @@
     overflow: hidden; margin-top: 0.45rem; display: none;
   }
   .bar i {
-    display: block; height: 100%; width: 100%; background: var(--accent);
+    display: block; height: 100%; width: 100%; background: var(--red);
     transform: scaleX(0); transform-origin: left; transition: transform 0.7s linear;
   }
   .bar.verify i { background: var(--warn); }
@@ -107,10 +153,15 @@
     flex: none; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em;
     padding: 0.3rem 0.7rem; border-radius: 99px; background: var(--line); color: var(--muted);
   }
-  .tag.queued, .tag.downloading, .tag.writing, .tag.configuring { background: #1B3A55; color: #8CC4F5; }
-  .tag.verifying { background: #4A3A14; color: var(--warn); }
-  .tag.done { background: #163A27; color: var(--go); }
-  .tag.error { background: #451A1A; color: #F09B9B; }
+  .tag.queued, .tag.downloading, .tag.writing, .tag.configuring { background: var(--red-tint); color: var(--red); }
+  .tag.verifying { background: #FBF0DC; color: var(--warn); }
+  .tag.done { background: #E4F5E6; color: var(--go); }
+  .tag.error { background: #FCE4E4; color: var(--bad); }
+  @media (prefers-color-scheme: dark) {
+    .tag.verifying { background: #3A2E12; }
+    .tag.done { background: #16341C; }
+    .tag.error { background: #3A1616; }
+  }
 
   @keyframes pulse { 0%,100% { opacity: 0.45; } 50% { opacity: 1; } }
   .pulse { animation: pulse 2.2s ease-in-out infinite; }
@@ -147,7 +198,10 @@
     <label>Username</label>
     <input type="text" id="user" placeholder="pi">
     <label>Password</label>
-    <input type="password" id="password" placeholder="">
+    <div class="pwrap">
+      <input type="password" id="password" placeholder="">
+      <button type="button" class="eye" data-for="password" aria-label="Show password">👁</button>
+    </div>
     <div class="row">
       <div>
         <label>Wi-Fi SSID</label>
@@ -155,17 +209,20 @@
       </div>
       <div>
         <label>Wi-Fi password</label>
-        <input type="password" id="wifi_password" placeholder="">
+        <div class="pwrap">
+          <input type="password" id="wifi_password" placeholder="">
+          <button type="button" class="eye" data-for="wifi_password" aria-label="Show password">👁</button>
+        </div>
       </div>
     </div>
     <div class="row">
       <div>
         <label>Wi-Fi country</label>
-        <input type="text" id="wifi_country" placeholder="US" maxlength="2">
+        <select id="wifi_country"></select>
       </div>
       <div>
         <label>Timezone</label>
-        <input type="text" id="timezone" placeholder="UTC">
+        <select id="timezone"></select>
       </div>
     </div>
     <div class="check">
@@ -175,6 +232,10 @@
     <div class="check">
       <input type="checkbox" id="verify">
       <span>Verify after write (slower, ~2×)</span>
+    </div>
+    <div class="btnrow">
+      <button type="button" class="secondary" id="btn-remember">💾 Remember settings</button>
+      <button type="button" class="secondary" id="btn-reset">↺ Reset</button>
     </div>
     <button class="primary" id="btn-flash" disabled>SELECT CARDS</button>
     <div class="warnbox">START erases every selected card completely.
@@ -201,24 +262,171 @@ all selected cards are written in parallel</footer>
   let devices = [], flashing = false, misses = 0;
   const selected = new Set();
   const BUSY = ["queued", "downloading", "writing", "verifying", "configuring"];
+  const STORAGE_KEY = "piMassFlasherConfig";
 
-  // Prefill the form from config.json (server-side, gitignored — never
-  // hardcoded here) so the page ships with zero secrets baked in.
+  // ---- ISO 3166-1 alpha-2 country codes -> names, for the Wi-Fi regulatory
+  // domain dropdown. Static list (no network dependency at render time).
+  const COUNTRIES = [
+    ["AF","Afghanistan"],["AL","Albania"],["DZ","Algeria"],["AS","American Samoa"],["AD","Andorra"],
+    ["AO","Angola"],["AI","Anguilla"],["AQ","Antarctica"],["AG","Antigua and Barbuda"],["AR","Argentina"],
+    ["AM","Armenia"],["AW","Aruba"],["AU","Australia"],["AT","Austria"],["AZ","Azerbaijan"],
+    ["BS","Bahamas"],["BH","Bahrain"],["BD","Bangladesh"],["BB","Barbados"],["BY","Belarus"],
+    ["BE","Belgium"],["BZ","Belize"],["BJ","Benin"],["BM","Bermuda"],["BT","Bhutan"],
+    ["BO","Bolivia"],["BA","Bosnia and Herzegovina"],["BW","Botswana"],["BR","Brazil"],["BN","Brunei"],
+    ["BG","Bulgaria"],["BF","Burkina Faso"],["BI","Burundi"],["KH","Cambodia"],["CM","Cameroon"],
+    ["CA","Canada"],["CV","Cape Verde"],["KY","Cayman Islands"],["CF","Central African Republic"],["TD","Chad"],
+    ["CL","Chile"],["CN","China"],["CO","Colombia"],["KM","Comoros"],["CG","Congo"],
+    ["CD","Congo (DRC)"],["CR","Costa Rica"],["CI","Côte d'Ivoire"],["HR","Croatia"],["CU","Cuba"],
+    ["CW","Curaçao"],["CY","Cyprus"],["CZ","Czechia"],["DK","Denmark"],["DJ","Djibouti"],
+    ["DM","Dominica"],["DO","Dominican Republic"],["EC","Ecuador"],["EG","Egypt"],["SV","El Salvador"],
+    ["GQ","Equatorial Guinea"],["ER","Eritrea"],["EE","Estonia"],["SZ","Eswatini"],["ET","Ethiopia"],
+    ["FJ","Fiji"],["FI","Finland"],["FR","France"],["GF","French Guiana"],["PF","French Polynesia"],
+    ["GA","Gabon"],["GM","Gambia"],["GE","Georgia"],["DE","Germany"],["GH","Ghana"],
+    ["GI","Gibraltar"],["GR","Greece"],["GL","Greenland"],["GD","Grenada"],["GP","Guadeloupe"],
+    ["GU","Guam"],["GT","Guatemala"],["GG","Guernsey"],["GN","Guinea"],["GW","Guinea-Bissau"],
+    ["GY","Guyana"],["HT","Haiti"],["HN","Honduras"],["HK","Hong Kong"],["HU","Hungary"],
+    ["IS","Iceland"],["IN","India"],["ID","Indonesia"],["IR","Iran"],["IQ","Iraq"],
+    ["IE","Ireland"],["IM","Isle of Man"],["IL","Israel"],["IT","Italy"],["JM","Jamaica"],
+    ["JP","Japan"],["JE","Jersey"],["JO","Jordan"],["KZ","Kazakhstan"],["KE","Kenya"],
+    ["KI","Kiribati"],["KW","Kuwait"],["KG","Kyrgyzstan"],["LA","Laos"],["LV","Latvia"],
+    ["LB","Lebanon"],["LS","Lesotho"],["LR","Liberia"],["LY","Libya"],["LI","Liechtenstein"],
+    ["LT","Lithuania"],["LU","Luxembourg"],["MO","Macao"],["MG","Madagascar"],["MW","Malawi"],
+    ["MY","Malaysia"],["MV","Maldives"],["ML","Mali"],["MT","Malta"],["MH","Marshall Islands"],
+    ["MQ","Martinique"],["MR","Mauritania"],["MU","Mauritius"],["MX","Mexico"],["FM","Micronesia"],
+    ["MD","Moldova"],["MC","Monaco"],["MN","Mongolia"],["ME","Montenegro"],["MS","Montserrat"],
+    ["MA","Morocco"],["MZ","Mozambique"],["MM","Myanmar"],["NA","Namibia"],["NR","Nauru"],
+    ["NP","Nepal"],["NL","Netherlands"],["NC","New Caledonia"],["NZ","New Zealand"],["NI","Nicaragua"],
+    ["NE","Niger"],["NG","Nigeria"],["NU","Niue"],["NF","Norfolk Island"],["MK","North Macedonia"],
+    ["NO","Norway"],["OM","Oman"],["PK","Pakistan"],["PW","Palau"],["PS","Palestine"],
+    ["PA","Panama"],["PG","Papua New Guinea"],["PY","Paraguay"],["PE","Peru"],["PH","Philippines"],
+    ["PL","Poland"],["PT","Portugal"],["PR","Puerto Rico"],["QA","Qatar"],["RE","Réunion"],
+    ["RO","Romania"],["RU","Russia"],["RW","Rwanda"],["KN","Saint Kitts and Nevis"],["LC","Saint Lucia"],
+    ["VC","Saint Vincent and the Grenadines"],["WS","Samoa"],["SM","San Marino"],["ST","São Tomé and Príncipe"],["SA","Saudi Arabia"],
+    ["SN","Senegal"],["RS","Serbia"],["SC","Seychelles"],["SL","Sierra Leone"],["SG","Singapore"],
+    ["SX","Sint Maarten"],["SK","Slovakia"],["SI","Slovenia"],["SB","Solomon Islands"],["SO","Somalia"],
+    ["ZA","South Africa"],["KR","South Korea"],["SS","South Sudan"],["ES","Spain"],["LK","Sri Lanka"],
+    ["SD","Sudan"],["SR","Suriname"],["SE","Sweden"],["CH","Switzerland"],["SY","Syria"],
+    ["TW","Taiwan"],["TJ","Tajikistan"],["TZ","Tanzania"],["TH","Thailand"],["TL","Timor-Leste"],
+    ["TG","Togo"],["TO","Tonga"],["TT","Trinidad and Tobago"],["TN","Tunisia"],["TR","Turkey"],
+    ["TM","Turkmenistan"],["TC","Turks and Caicos Islands"],["TV","Tuvalu"],["UG","Uganda"],["UA","Ukraine"],
+    ["AE","United Arab Emirates"],["GB","United Kingdom"],["US","United States"],["UY","Uruguay"],["UZ","Uzbekistan"],
+    ["VU","Vanuatu"],["VA","Vatican City"],["VE","Venezuela"],["VN","Vietnam"],["VG","Virgin Islands (British)"],
+    ["VI","Virgin Islands (US)"],["YE","Yemen"],["ZM","Zambia"],["ZW","Zimbabwe"],
+  ];
+
+  function populateCountries() {
+    const sel = $("wifi_country");
+    sel.innerHTML = COUNTRIES.map(([code, name]) =>
+      `<option value="${code}">${esc(name)} (${code})</option>`).join("");
+  }
+
+  // ---- Timezones: ask the browser for the full IANA database when
+  // available (modern Chrome/Firefox/Edge/Safari); fall back to a curated
+  // list of major zones otherwise.
+  const FALLBACK_TIMEZONES = [
+    "UTC","Africa/Cairo","Africa/Johannesburg","Africa/Lagos","Africa/Nairobi",
+    "America/Anchorage","America/Argentina/Buenos_Aires","America/Bogota","America/Chicago",
+    "America/Denver","America/Los_Angeles","America/Mexico_City","America/New_York",
+    "America/Sao_Paulo","America/Toronto","Asia/Bangkok","Asia/Dubai","Asia/Hong_Kong",
+    "Asia/Jakarta","Asia/Kolkata","Asia/Manila","Asia/Seoul","Asia/Shanghai","Asia/Singapore",
+    "Asia/Tokyo","Australia/Sydney","Europe/Amsterdam","Europe/Berlin","Europe/London",
+    "Europe/Madrid","Europe/Moscow","Europe/Paris","Europe/Rome","Pacific/Auckland",
+  ];
+
+  function populateTimezones() {
+    let zones;
+    try { zones = Intl.supportedValuesOf("timeZone"); }
+    catch { zones = FALLBACK_TIMEZONES; }
+    if (!zones.includes("UTC")) zones = ["UTC", ...zones];
+    const sel = $("timezone");
+    sel.innerHTML = zones.map(z => `<option value="${esc(z)}">${esc(z)}</option>`).join("");
+  }
+
+  // ---- Password show/hide ----
+  document.querySelectorAll(".eye").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const input = $(btn.dataset.for);
+      const showing = input.type === "text";
+      input.type = showing ? "password" : "text";
+      btn.textContent = showing ? "👁" : "🙈";
+      btn.setAttribute("aria-label", showing ? "Show password" : "Hide password");
+    });
+  });
+
+  function readForm() {
+    return {
+      hostname: $("hostname").value.trim(),
+      number_hostnames: $("number_hostnames").checked,
+      user: $("user").value.trim(),
+      password: $("password").value,
+      wifi_ssid: $("wifi_ssid").value,
+      wifi_password: $("wifi_password").value,
+      wifi_country: $("wifi_country").value,
+      timezone: $("timezone").value,
+      enable_ssh: $("enable_ssh").checked,
+      verify: $("verify").checked,
+      keymap: "us",
+    };
+  }
+
+  // Some browsers' Intl.supportedValuesOf('timeZone') return legacy aliases
+  // (e.g. "Asia/Calcutta" instead of "Asia/Kolkata") and never the country
+  // list at all. If a saved config value isn't one of the select's options,
+  // <select>.value = x silently no-ops and leaves the first option selected
+  // — flashing would then silently ship the wrong zone/country. Guard by
+  // injecting the value as its own option when it's missing.
+  function setSelectValue(select, value) {
+    if (!value) return;
+    const hasOption = [...select.options].some(o => o.value === value);
+    if (!hasOption) {
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = `${value} (current)`;
+      select.prepend(opt);
+    }
+    select.value = value;
+  }
+
+  function applyToForm(cfg) {
+    $("hostname").value = cfg.hostname ?? "";
+    $("number_hostnames").checked = cfg.number_hostnames !== false;
+    $("user").value = cfg.user ?? "";
+    $("password").value = cfg.password ?? "";
+    $("wifi_ssid").value = cfg.wifi_ssid ?? "";
+    $("wifi_password").value = cfg.wifi_password ?? "";
+    if (cfg.wifi_country) setSelectValue($("wifi_country"), cfg.wifi_country.toUpperCase());
+    if (cfg.timezone) setSelectValue($("timezone"), cfg.timezone);
+    $("enable_ssh").checked = cfg.enable_ssh !== false;
+    $("verify").checked = !!cfg.verify;
+  }
+
+  // Baseline is always config.json (via the server) so a fresh browser with
+  // no saved settings still gets your real defaults. A "Remember settings"
+  // save in localStorage then wins on every later load in *this* browser,
+  // so edits survive a refresh instead of reverting to config.json.
   async function loadDefaults() {
     try {
       const cfg = await (await fetch("/api/config")).json();
-      $("hostname").value = cfg.hostname ?? "";
-      $("number_hostnames").checked = !!cfg.number_hostnames;
-      $("user").value = cfg.user ?? "";
-      $("password").value = cfg.password ?? "";
-      $("wifi_ssid").value = cfg.wifi_ssid ?? "";
-      $("wifi_password").value = cfg.wifi_password ?? "";
-      $("wifi_country").value = (cfg.wifi_country ?? "").toUpperCase();
-      $("timezone").value = cfg.timezone ?? "";
-      $("enable_ssh").checked = cfg.enable_ssh !== false;
-      $("verify").checked = !!cfg.verify;
+      applyToForm(cfg);
     } catch { /* server unreachable yet; poll() will surface the banner */ }
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      try { applyToForm(JSON.parse(saved)); } catch { /* ignore corrupt entry */ }
+    }
   }
+
+  $("btn-remember").addEventListener("click", () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(readForm()));
+    const btn = $("btn-remember");
+    const original = btn.textContent;
+    btn.textContent = "✓ Saved"; btn.classList.add("saved");
+    setTimeout(() => { btn.textContent = original; btn.classList.remove("saved"); }, 1600);
+  });
+
+  $("btn-reset").addEventListener("click", () => {
+    localStorage.removeItem(STORAGE_KEY);
+    loadDefaults();
+  });
 
   const esc = s => String(s).replace(/[&<>"']/g, c =>
     ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
@@ -303,19 +511,7 @@ all selected cards are written in parallel</footer>
     if (!devs.length) return;
     if (!confirm("PERMANENTLY ERASE everything on:\n\n" + devs.join("\n") +
                  "\n\nand install Raspberry Pi OS. Continue?")) return;
-    const config = {
-      hostname: $("hostname").value.trim(),
-      number_hostnames: $("number_hostnames").checked,
-      user: $("user").value.trim(),
-      password: $("password").value,
-      wifi_ssid: $("wifi_ssid").value,
-      wifi_password: $("wifi_password").value,
-      wifi_country: $("wifi_country").value.trim().toUpperCase(),
-      timezone: $("timezone").value.trim(),
-      enable_ssh: $("enable_ssh").checked,
-      verify: $("verify").checked,
-      keymap: "us"
-    };
+    const config = readForm();
     const r = await fetch("/api/flash", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -327,6 +523,8 @@ all selected cards are written in parallel</footer>
     poll();
   });
 
+  populateCountries();
+  populateTimezones();
   loadDefaults();
   setInterval(poll, 2000);
   poll();

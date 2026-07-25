@@ -19,3 +19,4 @@ __pycache__/
 # Tool-specific state directories some environments generate here
 .omc/
 .impeccable/
+.gstack/
