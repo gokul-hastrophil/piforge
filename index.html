@@ -146,6 +146,7 @@
   .dev.selected { border-color: var(--accent); }
   .dev.state-done { border-color: var(--go); }
   .dev.state-error { border-color: var(--bad); }
+  .dev.state-cancelled { border-color: var(--muted); }
   .dev input[type=checkbox] { width: 1.3rem; height: 1.3rem; accent-color: var(--go); flex: none; }
   .devinfo { flex: 1; min-width: 0; text-align: left; }
   .devname { font-weight: 700; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 1.05rem; }
@@ -175,6 +176,14 @@
   .tag.verifying { background: #FBF0DC; color: var(--warn); }
   .tag.done { background: #E4F5E6; color: var(--go); }
   .tag.error { background: #FCE4E4; color: var(--bad); }
+  .tag.cancelling, .tag.cancelled { background: var(--line); color: var(--muted); }
+
+  button.cancel-batch {
+    font: inherit; font-weight: 700; color: var(--bad); background: #FCE4E4;
+    border: 1px solid var(--bad); border-radius: 12px; padding: 0.6rem 1rem;
+    width: 100%; cursor: pointer; margin-top: 0.7rem;
+  }
+  button.cancel-batch:hover { background: var(--bad); color: #fff; }
 
   @keyframes pulse { 0%,100% { opacity: 0.45; } 50% { opacity: 1; } }
   .pulse { animation: pulse 2.2s ease-in-out infinite; }
@@ -333,6 +342,7 @@
         <button type="button" class="secondary" id="btn-reset">↺ Reset</button>
       </div>
       <button class="primary" id="btn-flash" disabled>SELECT CARDS</button>
+      <button type="button" class="cancel-batch" id="btn-cancel-batch" style="display:none">🛑 Cancel batch</button>
       <div class="warnbox">START erases every selected card completely.</div>
     </section>
   </div>
@@ -367,7 +377,7 @@ all selected cards are written in parallel</footer>
   const $ = id => document.getElementById(id);
   let devices = [], flashing = false, wasFlashing = false, misses = 0;
   const selected = new Set();
-  const BUSY = ["queued", "downloading", "writing", "verifying", "configuring"];
+  const BUSY = ["queued", "downloading", "writing", "verifying", "configuring", "cancelling"];
   const STORAGE_KEY = "piForgeConfig";
 
   const esc = s => String(s).replace(/[&<>"']/g, c =>
@@ -724,7 +734,8 @@ all selected cards are written in parallel</footer>
         </div>
         <div class="devside">
           ${st ? `<span class="tag ${esc(st)} ${busy ? "pulse" : ""}">${esc(st.toUpperCase())}</span>` : ""}
-          ${st === "error" && !flashing ? `<button type="button" class="tiny retry" data-retry="${esc(d.device)}">↻ Retry</button>` : ""}
+          ${(st === "error" || st === "cancelled") && !flashing ? `<button type="button" class="tiny retry" data-retry="${esc(d.device)}">↻ Retry</button>` : ""}
+          ${busy && st !== "cancelling" ? `<button type="button" class="tiny danger" data-cancel="${esc(d.device)}">⏹ Stop</button>` : ""}
         </div>
       </div>`;
     }).join("");
@@ -735,11 +746,28 @@ all selected cards are written in parallel</footer>
       }));
     grid.querySelectorAll("button[data-retry]").forEach(btn =>
       btn.addEventListener("click", () => startFlashing([btn.dataset.retry])));
+    grid.querySelectorAll("button[data-cancel]").forEach(btn =>
+      btn.addEventListener("click", () => cancelCards([btn.dataset.cancel])));
     updateButton();
   }
 
+  async function cancelCards(devs) {
+    await fetch("/api/cancel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ devices: devs || [] }),
+    });
+    poll();
+  }
+
+  $("btn-cancel-batch").addEventListener("click", () => {
+    if (confirm("Cancel the whole batch? Cards still writing will be left incomplete.")) cancelCards(null);
+  });
+
   function updateButton() {
     const btn = $("btn-flash");
+    const cancelBtn = $("btn-cancel-batch");
+    cancelBtn.style.display = flashing ? "block" : "none";
     if (flashing) { btn.disabled = true; btn.textContent = "FLASHING…"; return; }
     const n = selected.size;
     btn.disabled = n === 0;

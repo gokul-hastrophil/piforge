@@ -14,6 +14,7 @@ Run:  sudo python3 server.py       then open http://127.0.0.1:8000
 import json
 import os
 import re
+import signal
 import subprocess
 import tempfile
 import threading
@@ -138,11 +139,62 @@ PREP_LOCK = threading.Lock()
 PREP_STATE = {"phase": "idle", "percent": 0, "error": None}  # idle|download|extract|ready
 FLASH_ACTIVE = threading.Event()
 
+RUNNING_PROCS = {}   # device -> Popen of the currently running dd/verify step
+PROCS_LOCK = threading.Lock()
+CANCEL_FLAGS = set()  # devices with a pending/handled cancel request
+CANCEL_LOCK = threading.Lock()
+
 
 def set_job(dev, **kw):
     with JOBS_LOCK:
         JOBS.setdefault(dev, {})
         JOBS[dev].update(kw)
+
+
+BUSY_STATES = {"queued", "downloading", "writing", "verifying", "configuring"}
+
+
+def register_proc(dev, proc):
+    with PROCS_LOCK:
+        RUNNING_PROCS[dev] = proc
+
+
+def unregister_proc(dev):
+    with PROCS_LOCK:
+        RUNNING_PROCS.pop(dev, None)
+
+
+def is_cancelled(dev):
+    with CANCEL_LOCK:
+        return dev in CANCEL_FLAGS
+
+
+def clear_cancel(dev):
+    with CANCEL_LOCK:
+        CANCEL_FLAGS.discard(dev)
+
+
+def request_cancel(devices):
+    """devices: explicit list, or falsy to cancel every currently-busy card.
+    Kills the running dd/verify process group immediately; flash_device
+    notices via is_cancelled() and marks the card 'cancelled' instead of
+    'error'. Cards still queued/downloading (no process yet) are caught by
+    the same check before they start writing."""
+    if not devices:
+        with JOBS_LOCK:
+            devices = [d for d, j in JOBS.items() if j.get("state") in BUSY_STATES]
+    with CANCEL_LOCK:
+        CANCEL_FLAGS.update(devices)
+    for dev in devices:
+        set_job(dev, state="cancelling", message="Cancelling…")
+        with PROCS_LOCK:
+            proc = RUNNING_PROCS.get(dev)
+        if proc is not None:
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except (ProcessLookupError, PermissionError):
+                pass
+    return devices
 
 
 # ---------------------------------------------------------------- devices
@@ -337,15 +389,28 @@ def boot_partition(dev):
     return None
 
 
+class Cancelled(Exception):
+    """Raised inside flash_device when the user cancelled this card."""
+
+
+def check_cancelled(dev):
+    if is_cancelled(dev):
+        clear_cancel(dev)
+        raise Cancelled()
+
+
 def flash_device(dev, cfg, hostname, static_ip=None):
     log = f"/tmp/flash-{os.path.basename(dev)}.log"
     start_time = time.time()
     image_url = cfg.get("image_url") or current_image_url()
     try:
+        check_cancelled(dev)  # cancelled while still queued, before any work
+
         if not os.path.exists(RAW_IMAGE):
             set_job(dev, state="downloading", percent=0, message="Preparing image (once)…")
             prepare_image(image_url)
 
+        check_cancelled(dev)
         total = os.path.getsize(RAW_IMAGE)
 
         # Refuse to silently truncate: a card smaller than the image would
@@ -367,9 +432,14 @@ def flash_device(dev, cfg, hostname, static_ip=None):
             proc = subprocess.Popen(
                 ["dd", f"if={RAW_IMAGE}", f"of={dev}", f"bs={DD_BS}",
                  "oflag=direct", "conv=fsync", "iflag=fullblock"],
-                stdout=lf, stderr=subprocess.STDOUT)
-            watch_progress(dev, proc, total, "writing", 6)
-            rc = proc.wait()
+                stdout=lf, stderr=subprocess.STDOUT, start_new_session=True)
+            register_proc(dev, proc)
+            try:
+                watch_progress(dev, proc, total, "writing", 6)
+                rc = proc.wait()
+            finally:
+                unregister_proc(dev)
+        check_cancelled(dev)
         if rc != 0:
             tail = open(log).read()[-400:]
             raise RuntimeError(f"dd exited {rc}: …{tail}")
@@ -380,12 +450,18 @@ def flash_device(dev, cfg, hostname, static_ip=None):
                 proc = subprocess.Popen(
                     f"dd if='{dev}' bs={DD_BS} iflag=direct,fullblock 2>>'{log}'"
                     f" | head -c {total} | cmp -s - '{RAW_IMAGE}'",
-                    shell=True, stdout=lf, stderr=subprocess.STDOUT)
-                watch_progress(dev, proc, total, "verifying", 2)
-                rc = proc.wait()
+                    shell=True, stdout=lf, stderr=subprocess.STDOUT, start_new_session=True)
+                register_proc(dev, proc)
+                try:
+                    watch_progress(dev, proc, total, "verifying", 2)
+                    rc = proc.wait()
+                finally:
+                    unregister_proc(dev)
+            check_cancelled(dev)
             if rc != 0:
                 raise RuntimeError("verification FAILED — card data differs from image")
 
+        check_cancelled(dev)
         set_job(dev, state="configuring", percent=100, message="Injecting configuration…")
         subprocess.run(["partprobe", dev], capture_output=True)
         time.sleep(2)
@@ -429,7 +505,13 @@ def flash_device(dev, cfg, hostname, static_ip=None):
         set_job(dev, state="done", percent=100,
                 message=f"Done — {hostname} configured & verified, safe to remove")
         log_history(dev, hostname, "done", time.time() - start_time, image_url)
+    except Cancelled:
+        unregister_proc(dev)
+        set_job(dev, state="cancelled", percent=0,
+                message="Cancelled — card is incomplete, reflash before use")
+        log_history(dev, hostname, "cancelled", time.time() - start_time, image_url)
     except Exception as e:
+        unregister_proc(dev)
         set_job(dev, state="error", percent=0, message=str(e)[:300])
         log_history(dev, hostname, "error", time.time() - start_time, image_url)
 
@@ -538,6 +620,15 @@ class Handler(BaseHTTPRequestHandler):
                 profiles[name] = req["config"]
                 save_profiles(profiles)
                 self._json({"ok": True})
+            except Exception as e:
+                self._json({"error": str(e)}, 400)
+            return
+
+        if parsed.path == "/api/cancel":
+            try:
+                req = json.loads(body)
+                cancelled = request_cancel(req.get("devices") or None)
+                self._json({"ok": True, "devices": cancelled})
             except Exception as e:
                 self._json({"error": str(e)}, 400)
             return
