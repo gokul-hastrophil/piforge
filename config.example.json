@@ -1,0 +1,14 @@
+{
+  "image_url": "https://downloads.raspberrypi.com/raspios_oldstable_arm64_latest",
+  "hostname": "raspberrypi",
+  "number_hostnames": true,
+  "user": "pi",
+  "password": "changeme",
+  "wifi_ssid": "",
+  "wifi_password": "",
+  "wifi_country": "US",
+  "timezone": "UTC",
+  "keymap": "us",
+  "enable_ssh": true,
+  "verify": false
+}

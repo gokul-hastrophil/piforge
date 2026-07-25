@@ -1,0 +1,21 @@
+# Your real secrets — never commit this. Copy config.example.json instead.
+config.json
+
+# Downloaded/decompressed OS images (multi-GB, machine-local cache)
+rpi-images/
+
+# Runtime logs
+/tmp/flash-*.log
+*.log
+
+# Python
+__pycache__/
+*.pyc
+
+# Editor/OS cruft
+.DS_Store
+*.swp
+
+# Tool-specific state directories some environments generate here
+.omc/
+.impeccable/

@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pi Mass Flasher</title>
+<style>
+  /* Shop-floor kiosk: one deliberate dark theme, huge type, unmissable states */
+  :root {
+    --bg: #14181D;
+    --panel: #1C2229;
+    --line: #2C353F;
+    --ink: #E8ECEF;
+    --muted: #8B98A5;
+    --go: #2FB56B;
+    --go-press: #27995B;
+    --bad: #E24C4C;
+    --warn: #E2A33C;
+    --accent: #4C97E2;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+    display: flex; flex-direction: column;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 1rem 1.5rem; border-bottom: 1px solid var(--line);
+  }
+  header .brand { font-size: 1.05rem; font-weight: 650; letter-spacing: 0.02em; }
+  header .brand span { color: var(--muted); font-weight: 400; }
+  .counter { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 0.95rem; }
+  .counter b { color: var(--ink); font-size: 1.2rem; }
+
+  .offline-banner, .root-banner {
+    display: none; text-align: center; padding: 0.5rem; font-weight: 650;
+  }
+  .offline-banner { background: var(--bad); color: #fff; }
+  .root-banner { background: var(--warn); color: #14181D; }
+
+  main {
+    flex: 1; display: grid; grid-template-columns: 380px 1fr;
+    gap: 1.4rem; padding: 1.4rem 1.5rem; align-items: start;
+    width: 100%; max-width: 1280px; margin: 0 auto;
+  }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 1.2rem 1.4rem;
+  }
+  .panel h2 {
+    margin: 0 0 1rem; font-size: 0.8rem; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--muted); font-weight: 650;
+  }
+  label { display: block; font-size: 0.8rem; color: var(--muted); margin: 0.7rem 0 0.25rem; }
+  input[type=text], input[type=password] {
+    width: 100%; font: inherit; font-size: 1rem; color: var(--ink);
+    background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: 0.55rem 0.7rem; outline: none;
+  }
+  input:focus-visible { border-color: var(--accent); }
+  .row { display: flex; gap: 0.7rem; }
+  .row > div { flex: 1; }
+  .check { display: flex; align-items: center; gap: 0.55rem; margin-top: 0.8rem; font-size: 0.9rem; }
+  .check input { width: 1.05rem; height: 1.05rem; accent-color: var(--go); }
+
+  button.primary {
+    font: inherit; font-size: 1.35rem; font-weight: 700; color: #fff;
+    background: var(--go); border: none; border-radius: 14px;
+    padding: 0.9rem 1rem; cursor: pointer; width: 100%; margin-top: 1.2rem;
+  }
+  button.primary:hover:not(:disabled) { background: var(--go-press); }
+  button.primary:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+  button.primary:disabled { background: var(--line); color: var(--muted); cursor: not-allowed; }
+  .warnbox { color: var(--warn); font-size: 0.85rem; margin-top: 0.9rem; }
+  .warnbox code { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 0.05rem 0.3rem; }
+
+  .devgrid { display: flex; flex-direction: column; gap: 0.8rem; }
+  .dev {
+    display: flex; align-items: center; gap: 1rem;
+    background: var(--bg); border: 1px solid var(--line);
+    border-radius: 10px; padding: 0.9rem 1.1rem;
+  }
+  .dev.selected { border-color: var(--accent); }
+  .dev.state-done { border-color: var(--go); }
+  .dev.state-error { border-color: var(--bad); }
+  .dev input[type=checkbox] { width: 1.3rem; height: 1.3rem; accent-color: var(--go); flex: none; }
+  .devinfo { flex: 1; min-width: 0; text-align: left; }
+  .devname { font-weight: 700; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 1.05rem; }
+  .devname span { color: var(--muted); font-weight: 400; }
+  .devmeta { color: var(--muted); font-size: 0.85rem; }
+  .devmsg { font-size: 0.85rem; margin-top: 0.35rem; overflow-wrap: anywhere; }
+  .bar {
+    height: 0.55rem; border-radius: 4px; background: var(--line);
+    overflow: hidden; margin-top: 0.45rem; display: none;
+  }
+  .bar i {
+    display: block; height: 100%; width: 100%; background: var(--accent);
+    transform: scaleX(0); transform-origin: left; transition: transform 0.7s linear;
+  }
+  .bar.verify i { background: var(--warn); }
+
+  .tag {
+    flex: none; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em;
+    padding: 0.3rem 0.7rem; border-radius: 99px; background: var(--line); color: var(--muted);
+  }
+  .tag.queued, .tag.downloading, .tag.writing, .tag.configuring { background: #1B3A55; color: #8CC4F5; }
+  .tag.verifying { background: #4A3A14; color: var(--warn); }
+  .tag.done { background: #163A27; color: var(--go); }
+  .tag.error { background: #451A1A; color: #F09B9B; }
+
+  @keyframes pulse { 0%,100% { opacity: 0.45; } 50% { opacity: 1; } }
+  .pulse { animation: pulse 2.2s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
+
+  .empty { text-align: center; color: var(--muted); padding: 3rem 1rem; }
+  .empty .bigicon { font-size: 4rem; line-height: 1; margin-bottom: 0.8rem; }
+  .empty h3 { margin: 0 0 0.3rem; color: var(--ink); font-size: 1.4rem; }
+
+  .scanstate { font-size: 0.8rem; color: var(--muted); text-transform: none; letter-spacing: 0; }
+  footer {
+    color: var(--muted); font-size: 0.8rem; text-align: center;
+    padding: 0.8rem 1.5rem 1.2rem;
+  }
+</style>
+</head>
+<body>
+<div class="offline-banner" id="offline">Station program not responding. Tell your supervisor.</div>
+<div class="root-banner" id="rootwarn">Flashing disabled — restart the station program with: sudo python3 server.py</div>
+<header>
+  <div class="brand">🍓 Pi Mass Flasher <span>· parallel SD card writer</span></div>
+  <div class="counter">Cards done: <b id="count">0</b></div>
+</header>
+
+<main>
+  <section class="panel">
+    <h2>Card setup</h2>
+    <label>Hostname base</label>
+    <input type="text" id="hostname" placeholder="raspberrypi">
+    <div class="check">
+      <input type="checkbox" id="number_hostnames" checked>
+      <span>Number each card (name1, name2…)</span>
+    </div>
+    <label>Username</label>
+    <input type="text" id="user" placeholder="pi">
+    <label>Password</label>
+    <input type="password" id="password" placeholder="">
+    <div class="row">
+      <div>
+        <label>Wi-Fi SSID</label>
+        <input type="text" id="wifi_ssid" placeholder="(optional)">
+      </div>
+      <div>
+        <label>Wi-Fi password</label>
+        <input type="password" id="wifi_password" placeholder="">
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label>Wi-Fi country</label>
+        <input type="text" id="wifi_country" placeholder="US" maxlength="2">
+      </div>
+      <div>
+        <label>Timezone</label>
+        <input type="text" id="timezone" placeholder="UTC">
+      </div>
+    </div>
+    <div class="check">
+      <input type="checkbox" id="enable_ssh" checked>
+      <span>Enable SSH</span>
+    </div>
+    <div class="check">
+      <input type="checkbox" id="verify">
+      <span>Verify after write (slower, ~2×)</span>
+    </div>
+    <button class="primary" id="btn-flash" disabled>SELECT CARDS</button>
+    <div class="warnbox">START erases every selected card completely.
+    OS image is set in <code>config.json</code> (<code>image_url</code>) — see README.</div>
+  </section>
+
+  <section class="panel">
+    <h2>Detected SD cards <span class="scanstate" id="scanstate"></span></h2>
+    <div class="devgrid" id="devgrid">
+      <div class="empty">
+        <div class="bigicon pulse">🗂️</div>
+        <h3>Insert SD cards</h3>
+        <p>Cards are found automatically. Plug in as many as you want to flash.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>Auto-refresh every 2 s · only removable, non-system drives are shown ·
+all selected cards are written in parallel</footer>
+
+<script>
+  const $ = id => document.getElementById(id);
+  let devices = [], flashing = false, misses = 0;
+  const selected = new Set();
+  const BUSY = ["queued", "downloading", "writing", "verifying", "configuring"];
+
+  // Prefill the form from config.json (server-side, gitignored — never
+  // hardcoded here) so the page ships with zero secrets baked in.
+  async function loadDefaults() {
+    try {
+      const cfg = await (await fetch("/api/config")).json();
+      $("hostname").value = cfg.hostname ?? "";
+      $("number_hostnames").checked = !!cfg.number_hostnames;
+      $("user").value = cfg.user ?? "";
+      $("password").value = cfg.password ?? "";
+      $("wifi_ssid").value = cfg.wifi_ssid ?? "";
+      $("wifi_password").value = cfg.wifi_password ?? "";
+      $("wifi_country").value = (cfg.wifi_country ?? "").toUpperCase();
+      $("timezone").value = cfg.timezone ?? "";
+      $("enable_ssh").checked = cfg.enable_ssh !== false;
+      $("verify").checked = !!cfg.verify;
+    } catch { /* server unreachable yet; poll() will surface the banner */ }
+  }
+
+  const esc = s => String(s).replace(/[&<>"']/g, c =>
+    ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+
+  function render() {
+    const grid = $("devgrid");
+    if (!devices.length) {
+      grid.innerHTML = `<div class="empty">
+        <div class="bigicon pulse">🗂️</div>
+        <h3>Insert SD cards</h3>
+        <p>Cards are found automatically. Plug in as many as you want to flash.</p></div>`;
+      updateButton();
+      return;
+    }
+    grid.innerHTML = devices.map(d => {
+      const job = d.job || {};
+      const st = job.state || "";
+      const busy = BUSY.includes(st);
+      const isSel = selected.has(d.device);
+      const pct = job.percent || 0;
+      return `<div class="dev ${isSel ? "selected" : ""} ${st ? "state-" + esc(st) : ""}">
+        <input type="checkbox" ${isSel ? "checked" : ""} ${flashing ? "disabled" : ""}
+               data-dev="${esc(d.device)}">
+        <div class="devinfo">
+          <div class="devname">${esc(d.device)}
+            ${job.hostname ? `<span>· ${esc(job.hostname)}</span>` : ""}</div>
+          <div class="devmeta">${esc(d.model)} · ${esc(d.size_h)}${d.tran ? " · " + esc(d.tran) : ""}</div>
+          ${job.message ? `<div class="devmsg">${esc(job.message)}</div>` : ""}
+          <div class="bar ${st === "verifying" ? "verify" : ""}"
+               style="display:${busy ? "block" : "none"}"><i style="transform:scaleX(${pct / 100})"></i></div>
+        </div>
+        ${st ? `<span class="tag ${esc(st)} ${busy ? "pulse" : ""}">${esc(st.toUpperCase())}</span>` : ""}
+      </div>`;
+    }).join("");
+    grid.querySelectorAll("input[data-dev]").forEach(cb =>
+      cb.addEventListener("change", () => {
+        cb.checked ? selected.add(cb.dataset.dev) : selected.delete(cb.dataset.dev);
+        render();
+      }));
+    updateButton();
+  }
+
+  function updateButton() {
+    const btn = $("btn-flash");
+    if (flashing) { btn.disabled = true; btn.textContent = "FLASHING…"; return; }
+    const n = selected.size;
+    btn.disabled = n === 0;
+    btn.textContent = n === 0 ? "SELECT CARDS" : `START — FLASH ${n} CARD${n > 1 ? "S" : ""}`;
+  }
+
+  async function poll() {
+    let data;
+    try {
+      data = await (await fetch("/api/devices")).json();
+      misses = 0; $("offline").style.display = "none";
+    } catch {
+      if (++misses > 4) $("offline").style.display = "block";
+      return;
+    }
+    flashing = data.flashing;
+    devices = data.devices || [];
+    const present = new Set(devices.map(d => d.device));
+    for (const s of [...selected]) if (!present.has(s)) selected.delete(s);
+    if (!flashing) {
+      for (const d of devices) {
+        const st = (d.job || {}).state;
+        if (!st) selected.add(d.device);   // auto-select fresh cards
+      }
+    }
+    $("rootwarn").style.display = data.root ? "none" : "block";
+    $("count").textContent = devices.filter(d => (d.job || {}).state === "done").length;
+    const prep = data.prep || {};
+    $("scanstate").textContent = data.image_cached ? "· image ready ✓"
+      : (prep.phase === "download" ? `· downloading image ${prep.percent}%`
+        : prep.phase === "extract" ? `· extracting image ${prep.percent}%`
+        : "· image prepares on first flash");
+    render();
+  }
+
+  $("btn-flash").addEventListener("click", async () => {
+    const devs = [...selected].sort();
+    if (!devs.length) return;
+    if (!confirm("PERMANENTLY ERASE everything on:\n\n" + devs.join("\n") +
+                 "\n\nand install Raspberry Pi OS. Continue?")) return;
+    const config = {
+      hostname: $("hostname").value.trim(),
+      number_hostnames: $("number_hostnames").checked,
+      user: $("user").value.trim(),
+      password: $("password").value,
+      wifi_ssid: $("wifi_ssid").value,
+      wifi_password: $("wifi_password").value,
+      wifi_country: $("wifi_country").value.trim().toUpperCase(),
+      timezone: $("timezone").value.trim(),
+      enable_ssh: $("enable_ssh").checked,
+      verify: $("verify").checked,
+      keymap: "us"
+    };
+    const r = await fetch("/api/flash", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ devices: devs, config })
+    });
+    const res = await r.json();
+    if (res.error) alert("Error: " + res.error);
+    else { flashing = true; updateButton(); }
+    poll();
+  });
+
+  loadDefaults();
+  setInterval(poll, 2000);
+  poll();
+</script>
+</body>
+</html>
