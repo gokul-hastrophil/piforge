@@ -10,5 +10,13 @@
   "timezone": "UTC",
   "keymap": "us",
   "enable_ssh": true,
-  "verify": false
+  "ssh_authorized_key": "",
+  "disable_ssh_password": false,
+  "static_ip_base": "",
+  "static_ip_cidr": 24,
+  "static_ip_gateway": "",
+  "static_ip_dns": "",
+  "static_ip_iface": "eth0",
+  "verify": false,
+  "notify_on_finish": false
 }

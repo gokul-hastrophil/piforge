@@ -1,5 +1,6 @@
-# Your real secrets — never commit this. Copy config.example.json instead.
+# Your real secrets — never commit these. Copy the .example.json files instead.
 config.json
+profiles.json
 
 # Downloaded/decompressed OS images (multi-GB, machine-local cache)
 rpi-images/

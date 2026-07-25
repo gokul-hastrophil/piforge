@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Verify the host has everything Pi Mass Flasher needs. Run this once after
+# Verify the host has everything PiForge needs. Run this once after
 # cloning, or whenever something behaves unexpectedly.
 #
 set -uo pipefail

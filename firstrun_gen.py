@@ -53,7 +53,9 @@ else
       fi
    fi
 fi
+@@SSHKEY_BLOCK@@
 @@WIFI_BLOCK@@
+@@STATICIP_BLOCK@@
 if [ -f /usr/lib/raspberrypi-sys-mods/imager_custom ]; then
    /usr/lib/raspberrypi-sys-mods/imager_custom set_keymap '@@KEYMAP@@'
    /usr/lib/raspberrypi-sys-mods/imager_custom set_timezone '@@TZ@@'
@@ -93,6 +95,25 @@ WPAEOF
    done
 fi"""
 
+SSHKEY_BLOCK_TEMPLATE = """install -d -m 700 -o '@@USER@@' -g '@@USER@@' '/home/@@USER@@/.ssh'
+cat > '/home/@@USER@@/.ssh/authorized_keys' <<'SSHKEYEOF'
+@@KEYS@@
+SSHKEYEOF
+chmod 600 '/home/@@USER@@/.ssh/authorized_keys'
+chown '@@USER@@:@@USER@@' '/home/@@USER@@/.ssh/authorized_keys'
+@@DISABLE_PW_BLOCK@@"""
+
+DISABLE_PW_BLOCK = """mkdir -p /etc/ssh/sshd_config.d
+echo 'PasswordAuthentication no' > /etc/ssh/sshd_config.d/99-piforge.conf"""
+
+STATICIP_BLOCK_TEMPLATE = """cat >> /etc/dhcpcd.conf <<'DHCPEOF'
+
+interface @@IFACE@@
+static ip_address=@@IP@@/@@CIDR@@
+static routers=@@GATEWAY@@
+static domain_name_servers=@@DNS@@
+DHCPEOF"""
+
 
 def sh_hash_password(password):
     return subprocess.run(["openssl", "passwd", "-6", password],
@@ -106,11 +127,23 @@ def wifi_psk(ssid, password):
     return m.group(1) if m else password
 
 
-def make_firstrun(cfg, hostname):
+def make_firstrun(cfg, hostname, static_ip=None):
     """cfg: dict with user, password, wifi_ssid, wifi_password, wifi_country,
-    timezone, keymap, enable_ssh. Hashes/PSK are computed here if not already
-    present as _hash/_psk (server.py precomputes them once for many cards)."""
-    ssh_block = SSH_BLOCK if cfg.get("enable_ssh", True) else ""
+    timezone, keymap, enable_ssh, ssh_authorized_key, disable_ssh_password,
+    static_ip_cidr/gateway/dns/iface. Hashes/PSK are computed here if not
+    already present as _hash/_psk (server.py precomputes them once for many
+    cards). static_ip, if given, is this card's own address (server.py
+    computes it per-card from static_ip_base + index)."""
+    has_key = bool(cfg.get("ssh_authorized_key", "").strip())
+    ssh_block = SSH_BLOCK if (cfg.get("enable_ssh", True) or has_key) else ""
+
+    sshkey_block = ""
+    if has_key:
+        disable_pw = DISABLE_PW_BLOCK if cfg.get("disable_ssh_password") else ""
+        sshkey_block = (SSHKEY_BLOCK_TEMPLATE
+                        .replace("@@USER@@", cfg["user"])
+                        .replace("@@KEYS@@", cfg["ssh_authorized_key"].strip())
+                        .replace("@@DISABLE_PW_BLOCK@@", disable_pw))
 
     wifi_block = ""
     if cfg.get("wifi_ssid"):
@@ -120,11 +153,24 @@ def make_firstrun(cfg, hostname):
                       .replace("@@PSK@@", psk)
                       .replace("@@COUNTRY@@", cfg.get("wifi_country") or "US"))
 
+    staticip_block = ""
+    ip = static_ip or cfg.get("_static_ip")
+    if ip:
+        staticip_block = (STATICIP_BLOCK_TEMPLATE
+                          .replace("@@IFACE@@", cfg.get("static_ip_iface") or "eth0")
+                          .replace("@@IP@@", ip)
+                          .replace("@@CIDR@@", str(cfg.get("static_ip_cidr") or 24))
+                          .replace("@@GATEWAY@@", cfg.get("static_ip_gateway") or "")
+                          .replace("@@DNS@@", cfg.get("static_ip_dns")
+                                   or cfg.get("static_ip_gateway") or "1.1.1.1"))
+
     password_hash = cfg.get("_hash") or sh_hash_password(cfg["password"])
 
     s = FIRSTRUN_TEMPLATE
     s = s.replace("@@SSH_BLOCK@@", ssh_block)
+    s = s.replace("@@SSHKEY_BLOCK@@", sshkey_block)
     s = s.replace("@@WIFI_BLOCK@@", wifi_block)
+    s = s.replace("@@STATICIP_BLOCK@@", staticip_block)
     for token, val in (
         ("@@HOSTNAME@@", hostname),
         ("@@USER@@", cfg["user"]),
@@ -136,11 +182,28 @@ def make_firstrun(cfg, hostname):
     return s
 
 
+def compute_static_ip(base_ip, index):
+    """base_ip + (index-1) on the last octet, e.g. 192.168.50.10 + index 3
+    -> 192.168.50.12. Same 1-based numbering scheme as hostnames, so card 1
+    gets the base address itself. Not meant for batches over ~200 cards
+    (no rollover past .254)."""
+    octets = base_ip.strip().split(".")
+    if len(octets) != 4:
+        raise ValueError(f"static_ip_base is not a dotted IPv4 address: {base_ip!r}")
+    last = int(octets[3]) + (index - 1)
+    if not (0 <= last <= 255):
+        raise ValueError(f"static IP offset out of range for base {base_ip!r} at index {index}")
+    octets[3] = str(last)
+    return ".".join(octets)
+
+
 def _main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config", required=True, help="path to config.json")
     ap.add_argument("--hostname", required=True)
+    ap.add_argument("--index", type=int, default=1,
+                    help="1-based card index, used for static_ip_base offset (default 1)")
     args = ap.parse_args()
 
     with open(args.config) as f:
@@ -148,7 +211,12 @@ def _main():
     if not cfg.get("password"):
         print("ERROR: config has no password set", file=sys.stderr)
         sys.exit(1)
-    sys.stdout.write(make_firstrun(cfg, args.hostname))
+
+    static_ip = None
+    if cfg.get("static_ip_base"):
+        static_ip = compute_static_ip(cfg["static_ip_base"], args.index)
+
+    sys.stdout.write(make_firstrun(cfg, args.hostname, static_ip=static_ip))
 
 
 if __name__ == "__main__":

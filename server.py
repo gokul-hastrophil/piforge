@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-Mass SD-card flasher for Raspberry Pi OS (Legacy, 64-bit, Bookworm + desktop).
+PiForge — mass SD-card installer for Raspberry Pi OS.
 
-Serves index.html, auto-detects removable SD cards, flashes them in parallel
-with rpi-imager --cli (falls back to xzcat|dd if rpi-imager is missing) and
-injects Imager-style firstrun.sh customization (hostname, user, password,
-Wi-Fi, country, timezone, SSH).
+Serves index.html, auto-detects removable SD cards, decompresses the OS
+image once and writes every selected card in parallel straight from the
+page cache (dd), then injects Imager-style firstrun.sh customization
+(hostname, user, password, SSH keys, Wi-Fi, country, timezone, keyboard,
+static IP). Also serves named config profiles and a flash history log.
 
 Run:  sudo python3 server.py       then open http://127.0.0.1:8000
 """
@@ -17,21 +18,27 @@ import subprocess
 import tempfile
 import threading
 import time
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from firstrun_gen import sh_hash_password, wifi_psk, make_firstrun
+import csv
+
+from firstrun_gen import sh_hash_password, wifi_psk, make_firstrun, compute_static_ip
 
 PORT = 8000
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 CONFIG_EXAMPLE_PATH = os.path.join(BASE_DIR, "config.example.json")
+PROFILES_PATH = os.path.join(BASE_DIR, "profiles.json")
 DEFAULT_IMAGE_URL = "https://downloads.raspberrypi.com/raspios_oldstable_arm64_latest"
 
 IMAGES_DIR = os.path.expanduser("~/rpi-images")
 IMAGE_FILE = os.path.join(IMAGES_DIR, "os-image.img.xz")   # compressed download
 RAW_IMAGE = os.path.join(IMAGES_DIR, "os-image.img")       # decompressed once
 URL_MARKER = os.path.join(IMAGES_DIR, "os-image.url")      # which URL is cached
+HISTORY_PATH = os.path.join(IMAGES_DIR, "flash-history.csv")
+HISTORY_FIELDS = ["timestamp", "device", "hostname", "status", "duration_s", "image_url"]
 DD_BS = "8M"
 
 # Generic, secret-free fallback used only if config.json is absent — the UI
@@ -49,6 +56,14 @@ BUILTIN_DEFAULTS = {
     "keymap": "us",
     "enable_ssh": True,
     "verify": False,
+    "ssh_authorized_key": "",
+    "disable_ssh_password": False,
+    "static_ip_base": "",
+    "static_ip_cidr": 24,
+    "static_ip_gateway": "",
+    "static_ip_dns": "",
+    "static_ip_iface": "eth0",
+    "notify_on_finish": False,
 }
 
 
@@ -71,6 +86,50 @@ def load_config_defaults():
 def current_image_url():
     return load_config_defaults().get("image_url") or DEFAULT_IMAGE_URL
 
+
+def load_profiles():
+    """Named config presets, e.g. {"classroom-kit": {...}}. Gitignored —
+    may contain real Wi-Fi passwords per profile."""
+    try:
+        with open(PROFILES_PATH) as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+    except Exception:
+        return {}
+
+
+def save_profiles(profiles):
+    tmp = PROFILES_PATH + ".part"
+    with open(tmp, "w") as f:
+        json.dump(profiles, f, indent=2)
+    os.replace(tmp, PROFILES_PATH)
+
+
+def log_history(device, hostname, status, duration_s, image_url):
+    os.makedirs(IMAGES_DIR, exist_ok=True)
+    is_new = not os.path.exists(HISTORY_PATH)
+    with open(HISTORY_PATH, "a", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=HISTORY_FIELDS)
+        if is_new:
+            w.writeheader()
+        w.writerow({
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "device": device,
+            "hostname": hostname,
+            "status": status,
+            "duration_s": round(duration_s, 1),
+            "image_url": image_url,
+        })
+
+
+def read_history(limit=50):
+    if not os.path.exists(HISTORY_PATH):
+        return []
+    with open(HISTORY_PATH, newline="") as f:
+        rows = list(csv.DictReader(f))
+    return list(reversed(rows))[:limit]
+
 # ---------------------------------------------------------------- state
 
 JOBS = {}          # device -> {state, percent, message, hostname}
@@ -91,7 +150,7 @@ def set_job(dev, **kw):
 def list_devices():
     """Removable block devices safe to flash."""
     out = subprocess.run(
-        ["lsblk", "-J", "-b", "-o", "NAME,SIZE,MODEL,TRAN,RM,TYPE,MOUNTPOINTS"],
+        ["lsblk", "-J", "-b", "-o", "NAME,SIZE,MODEL,TRAN,RM,TYPE,MOUNTPOINTS,FSTYPE"],
         capture_output=True, text=True, check=True).stdout
     devs = []
     for d in json.loads(out).get("blockdevices", []):
@@ -100,10 +159,13 @@ def list_devices():
         if not d.get("size"):
             continue  # empty reader slot
         mounts = []
+        fstypes = []
         def collect(node):
             for m in node.get("mountpoints") or []:
                 if m:
                     mounts.append(m)
+            if node.get("fstype"):
+                fstypes.append(node["fstype"])
             for c in node.get("children") or []:
                 collect(c)
         collect(d)
@@ -119,9 +181,17 @@ def list_devices():
             "size_h": human_size(d["size"]),
             "model": (d.get("model") or "").strip() or "Unknown",
             "tran": d.get("tran") or "",
+            "has_data": bool(fstypes),
+            "fstypes": sorted(set(fstypes)),
             "job": job,
         })
     return devs
+
+
+def device_size_bytes(dev):
+    out = subprocess.run(["blockdev", "--getsize64", dev],
+                         capture_output=True, text=True, check=True).stdout
+    return int(out.strip())
 
 
 def human_size(n):
@@ -133,15 +203,17 @@ def human_size(n):
 
 # ---------------------------------------------------------------- image
 
-def prepare_image():
+def prepare_image(image_url=None):
     """Download + decompress once; safe to call from many threads.
 
     Decompressing once (xz -T0, all cores) and dd-ing the raw image means the
     kernel page cache feeds every card from RAM — no per-card decompression.
-    If the configured image_url changed since the last run, the stale cache
-    is wiped so switching OS images (e.g. Lite vs desktop) redownloads.
+    image_url comes from the flash request itself (the UI's image picker),
+    falling back to config.json's default only if the caller doesn't have
+    one. If it changed since the last run, the stale cache is wiped so
+    switching OS images (e.g. Lite vs desktop) redownloads.
     """
-    image_url = current_image_url()
+    image_url = image_url or current_image_url()
     with PREP_LOCK:
         cached_url = None
         if os.path.exists(URL_MARKER):
@@ -161,7 +233,7 @@ def prepare_image():
             if not os.path.exists(IMAGE_FILE):
                 PREP_STATE.update(phase="download", percent=0, error=None)
                 tmp = IMAGE_FILE + ".part"
-                req = urllib.request.Request(image_url, headers={"User-Agent": "mass-flasher"})
+                req = urllib.request.Request(image_url, headers={"User-Agent": "piforge"})
                 with urllib.request.urlopen(req) as resp, open(tmp, "wb") as f:
                     total = int(resp.headers.get("Content-Length") or 0)
                     got = 0
@@ -230,17 +302,32 @@ def sectors(dev, index):
         return 0
 
 
+def format_duration(seconds):
+    seconds = int(max(0, seconds))
+    if seconds < 60:
+        return f"{seconds}s"
+    m, s = divmod(seconds, 60)
+    if m < 60:
+        return f"{m}m {s}s"
+    h, m = divmod(m, 60)
+    return f"{h}h {m}m"
+
+
 def watch_progress(dev, proc, total_bytes, state, stat_index):
     """Poll sysfs disk stats while a flash/verify process runs."""
     base = sectors(dev, stat_index)
     label = "Writing" if state == "writing" else "Verifying"
+    start = time.time()
     while proc.poll() is None:
         time.sleep(1)
         done = (sectors(dev, stat_index) - base) * 512
         pct = min(100.0, done * 100 / total_bytes)
-        rate = done / 1048576  # cumulative MB, for rough speed on message
+        elapsed = time.time() - start
+        rate_mb_s = (done / 1048576) / elapsed if elapsed > 0 else 0
+        eta = f" · ETA {format_duration((total_bytes - done) / (done / elapsed))}" \
+            if done > 0 and elapsed > 0 else ""
         set_job(dev, state=state, percent=round(pct, 1),
-                message=f"{label}… {pct:.0f}% ({rate:.0f} MB)")
+                message=f"{label}… {pct:.0f}% · {rate_mb_s:.1f} MB/s{eta}")
 
 
 def boot_partition(dev):
@@ -250,14 +337,28 @@ def boot_partition(dev):
     return None
 
 
-def flash_device(dev, cfg, hostname):
+def flash_device(dev, cfg, hostname, static_ip=None):
     log = f"/tmp/flash-{os.path.basename(dev)}.log"
+    start_time = time.time()
+    image_url = cfg.get("image_url") or current_image_url()
     try:
         if not os.path.exists(RAW_IMAGE):
             set_job(dev, state="downloading", percent=0, message="Preparing image (once)…")
-            prepare_image()
+            prepare_image(image_url)
 
         total = os.path.getsize(RAW_IMAGE)
+
+        # Refuse to silently truncate: a card smaller than the image would
+        # write successfully but boot into a corrupt/incomplete filesystem.
+        try:
+            dev_size = device_size_bytes(dev)
+        except Exception:
+            dev_size = None
+        if dev_size is not None and dev_size < total:
+            raise RuntimeError(
+                f"card too small: {human_size(dev_size)} available, "
+                f"{human_size(total)} needed for this image")
+
         set_job(dev, state="writing", percent=0, message="Starting write…", hostname=hostname)
 
         subprocess.run(f"umount {dev}?* 2>/dev/null", shell=True)
@@ -299,7 +400,7 @@ def flash_device(dev, cfg, hostname):
         try:
             subprocess.run(["mount", part, mnt], check=True, capture_output=True)
             with open(os.path.join(mnt, "firstrun.sh"), "w") as f:
-                f.write(make_firstrun(cfg, hostname))
+                f.write(make_firstrun(cfg, hostname, static_ip=static_ip))
             os.chmod(os.path.join(mnt, "firstrun.sh"), 0o755)
             cmdline_path = os.path.join(mnt, "cmdline.txt")
             with open(cmdline_path) as f:
@@ -327,14 +428,20 @@ def flash_device(dev, cfg, hostname):
 
         set_job(dev, state="done", percent=100,
                 message=f"Done — {hostname} configured & verified, safe to remove")
+        log_history(dev, hostname, "done", time.time() - start_time, image_url)
     except Exception as e:
         set_job(dev, state="error", percent=0, message=str(e)[:300])
+        log_history(dev, hostname, "error", time.time() - start_time, image_url)
 
 
 def start_flash(devices, cfg):
-    # Re-validate against current safe device list
-    safe = {d["device"] for d in list_devices()}
-    bad = [d for d in devices if d not in safe]
+    # Re-validate against current safe device list. Index cards by their
+    # position in the *full* currently-connected list (not just the ones
+    # being flashed this call) so retrying a single failed card reuses the
+    # same hostname/static-IP it would have gotten in the original batch,
+    # instead of renumbering it as "card 1".
+    all_present = sorted(d["device"] for d in list_devices())
+    bad = [d for d in devices if d not in all_present]
     if bad:
         raise ValueError(f"not a removable/safe device: {', '.join(bad)}")
 
@@ -343,11 +450,13 @@ def start_flash(devices, cfg):
         cfg["_psk"] = wifi_psk(cfg["wifi_ssid"], cfg.get("wifi_password", ""))
 
     threads = []
-    for i, dev in enumerate(sorted(devices), start=1):
+    for dev in devices:
+        i = all_present.index(dev) + 1
         hostname = (f"{cfg['hostname']}{i}" if cfg.get("number_hostnames", True)
                     else cfg["hostname"])
+        static_ip = compute_static_ip(cfg["static_ip_base"], i) if cfg.get("static_ip_base") else None
         set_job(dev, state="queued", percent=0, message="Queued…", hostname=hostname)
-        t = threading.Thread(target=flash_device, args=(dev, cfg, hostname), daemon=True)
+        t = threading.Thread(target=flash_device, args=(dev, cfg, hostname, static_ip), daemon=True)
         threads.append(t)
 
     def runner():
@@ -376,7 +485,9 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
-        if self.path in ("/", "/index.html"):
+        parsed = urllib.parse.urlparse(self.path)
+        path, query = parsed.path, urllib.parse.parse_qs(parsed.query)
+        if path in ("/", "/index.html"):
             try:
                 with open(os.path.join(BASE_DIR, "index.html"), "rb") as f:
                     body = f.read()
@@ -387,7 +498,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
             except FileNotFoundError:
                 self._json({"error": "index.html missing"}, 404)
-        elif self.path == "/api/devices":
+        elif path == "/api/devices":
             try:
                 self._json({
                     "devices": list_devices(),
@@ -399,24 +510,46 @@ class Handler(BaseHTTPRequestHandler):
                 })
             except Exception as e:
                 self._json({"error": str(e)}, 500)
-        elif self.path == "/api/config":
+        elif path == "/api/config":
             # Prefill values for the UI form. config.json (gitignored) wins
             # over config.example.json wins over generic built-in defaults —
             # nothing here is ever the repo's real Wi-Fi password.
             self._json(load_config_defaults())
+        elif path == "/api/profiles":
+            self._json(load_profiles())
+        elif path == "/api/history":
+            limit = int(query.get("limit", ["50"])[0])
+            self._json({"rows": read_history(limit)})
         else:
             self._json({"error": "not found"}, 404)
 
     def do_POST(self):
-        if self.path != "/api/flash":
+        parsed = urllib.parse.urlparse(self.path)
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length) if length else b"{}"
+
+        if parsed.path == "/api/profiles":
+            try:
+                req = json.loads(body)
+                name = (req.get("name") or "").strip()
+                if not name:
+                    raise ValueError("profile name is required")
+                profiles = load_profiles()
+                profiles[name] = req["config"]
+                save_profiles(profiles)
+                self._json({"ok": True})
+            except Exception as e:
+                self._json({"error": str(e)}, 400)
+            return
+
+        if parsed.path != "/api/flash":
             return self._json({"error": "not found"}, 404)
         if os.geteuid() != 0:
             return self._json({"error": "server not running as root — restart with sudo"}, 403)
         if FLASH_ACTIVE.is_set():
             return self._json({"error": "flash already in progress"}, 409)
         try:
-            length = int(self.headers.get("Content-Length", 0))
-            req = json.loads(self.rfile.read(length))
+            req = json.loads(body)
             devices = req["devices"]
             cfg = req["config"]
             for key in ("hostname", "user", "password", "timezone"):
@@ -426,12 +559,25 @@ class Handler(BaseHTTPRequestHandler):
             # only if a network is actually being configured.
             if cfg.get("wifi_ssid") and not cfg.get("wifi_country"):
                 raise ValueError("wifi_country is required when wifi_ssid is set")
+            if cfg.get("static_ip_base"):
+                compute_static_ip(cfg["static_ip_base"], 1)  # validates format early
             if not devices:
                 raise ValueError("no devices selected")
             start_flash(devices, cfg)
             self._json({"ok": True, "count": len(devices)})
         except Exception as e:
             self._json({"error": str(e)}, 400)
+
+    def do_DELETE(self):
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path != "/api/profiles":
+            return self._json({"error": "not found"}, 404)
+        name = urllib.parse.parse_qs(parsed.query).get("name", [""])[0]
+        profiles = load_profiles()
+        if name in profiles:
+            del profiles[name]
+            save_profiles(profiles)
+        self._json({"ok": True})
 
 
 if __name__ == "__main__":

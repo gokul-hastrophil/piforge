@@ -1,9 +1,9 @@
-# Pi Mass Flasher
+# PiForge
 
 Flash Raspberry Pi OS to many SD cards at once — in parallel, with hostname,
-user, password, Wi-Fi, country, timezone and SSH pre-configured so every card
-boots straight to a working desktop or headless login. No setup wizard, no
-per-card manual typing.
+user, password, Wi-Fi, country, timezone, keyboard layout, SSH keys and even
+per-card static IPs pre-configured, so every card boots straight to a working
+login. No setup wizard, no per-card manual typing.
 
 Built for anyone provisioning more than one Raspberry Pi at a time: classroom
 kits, workshops, IoT fleets, cluster builds.
@@ -13,22 +13,24 @@ kits, workshops, IoT fleets, cluster builds.
 1. You start a small local web server (`server.py`, Python stdlib only — no
    pip installs).
 2. Open `http://127.0.0.1:8000` in a browser. It auto-detects every
-   removable card in your USB reader(s) and lists them.
-3. Fill in the card-setup form (or let it prefill from `config.json`), select
-   the cards, hit **START**.
+   removable card in your USB reader(s) and lists them, flagging any that
+   already contain data.
+3. Fill in the card-setup form (or load a saved profile), select the cards,
+   hit **START**.
 4. The OS image is downloaded once and decompressed once. Every selected
    card is then written **in parallel**, straight from RAM (page cache) —
    so writing 4 cards takes about the same time as writing 1.
 5. Each card gets a unique hostname (`raspberrypi1`, `raspberrypi2`, ...) plus
-   your configured user/password/Wi-Fi/timezone/SSH, injected the same way
-   the official Raspberry Pi Imager does it (`firstrun.sh` + `cmdline.txt`).
+   your configured user/password/Wi-Fi/timezone/keyboard/SSH, injected the
+   same way the official Raspberry Pi Imager does it (`firstrun.sh` +
+   `cmdline.txt`).
 6. Boot the card — it applies the config, reboots once, and you're at a
    normal login. No wizard.
 
 ## Requirements
 
 Linux only (uses `lsblk`, `/sys/block/*/stat`, `dd oflag=direct`,
-`partprobe` — none of which exist on macOS/Windows). Tested on
+`blockdev`, `partprobe` — none of which exist on macOS/Windows). Tested on
 Ubuntu/Debian-family distros.
 
 Run this once after cloning:
@@ -48,36 +50,11 @@ It checks for: `python3`, `lsblk`, `dd`, `xz`, `openssl`, `wpa_passphrase`,
 cp config.example.json config.json
 ```
 
-Edit `config.json` with your real values:
+Edit `config.json` with your real values — see the field reference below.
+It's gitignored; your real password, Wi-Fi credentials, and SSH key never
+get committed.
 
-```json
-{
-  "image_url": "https://downloads.raspberrypi.com/raspios_oldstable_arm64_latest",
-  "hostname": "raspberrypi",
-  "number_hostnames": true,
-  "user": "pi",
-  "password": "changeme",
-  "wifi_ssid": "",
-  "wifi_password": "",
-  "wifi_country": "US",
-  "timezone": "UTC",
-  "keymap": "us",
-  "enable_ssh": true,
-  "verify": false
-}
-```
-
-`config.json` is gitignored — it holds your real password and Wi-Fi
-credentials and will never be committed. Leave `wifi_ssid` empty to skip
-Wi-Fi setup entirely (e.g. Ethernet-only boards).
-
-`image_url` accepts any Raspberry Pi OS `.img.xz` download link — Lite,
-desktop, 32-bit, 64-bit, Legacy (Bookworm) or current (Trixie+). Get the
-current links from https://www.raspberrypi.com/software/operating-systems/.
-Switching `image_url` automatically invalidates the cached image and
-re-downloads.
-
-## Usage — Web UI (recommended, fastest)
+## Web UI (recommended, fastest)
 
 ```bash
 sudo python3 server.py
@@ -99,11 +76,55 @@ the kernel's page cache via `dd`, so N cards write concurrently at close to
 each card's own hardware speed — not sequentially, and not re-paying the
 decompression cost per card.
 
-Enable **Verify after write** in the UI if you want a full byte-for-byte
-readback comparison afterward (roughly doubles the time per batch). Off by
-default for speed; recommended for production/unattended batches.
+### Feature reference
 
-## Usage — CLI only (no browser, no server)
+- **OS image picker** — choose from Raspberry Pi Foundation's official
+  "latest" links (Desktop/Lite/Full × current/Legacy Bookworm) or paste any
+  custom `.img.xz` URL. Switching the image automatically invalidates the
+  cached download so the new one is fetched.
+- **Card capacity check** — before writing, each card's real size is
+  compared against the image size. A card too small is refused with a clear
+  error instead of silently getting a truncated, unbootable write.
+- **Wi-Fi country / timezone / keyboard layout** — proper dropdowns (not
+  free text), so you can't typo a country code. Timezone list comes from
+  your browser's live IANA database when available.
+- **Password eye icons** — click to reveal the password/Wi-Fi-password
+  fields before submitting.
+- **SSH access** (collapsible section) — paste one or more public keys to
+  install into `~/.ssh/authorized_keys`; optionally disable password login
+  entirely (key-only). Providing a key auto-enables SSH even if the
+  checkbox is off.
+- **Static IP** (collapsible section) — set a base address
+  (e.g. `192.168.50.10`) and every card gets that address +1 per card,
+  matching the same numbering as hostnames. Writes a `dhcpcd.conf` static
+  profile for the interface you choose (`eth0`/`wlan0`).
+- **Profiles** — save the whole form under a name (e.g. `classroom-kit`,
+  `robot-cluster`) via **Save as**, reload it any time from the dropdown,
+  delete with 🗑. Stored server-side in `profiles.json` (gitignored) so
+  profiles persist across browsers/machines using the same server, unlike
+  the localStorage-based "Remember settings".
+- **Remember settings** — separately, saves your current form to this
+  browser's `localStorage` so a page refresh doesn't lose your edits.
+  **Reset** clears it and reloads `config.json`'s defaults.
+- **Verify after write** — full byte-for-byte readback comparison after
+  writing (roughly doubles time per batch). Off by default for speed;
+  recommended for production/unattended batches.
+- **Live speed + ETA** — each card's progress message shows current MB/s
+  and estimated time remaining, not just a percentage.
+- **Has-data warning** — a card that already contains recognizable
+  filesystems is flagged with a badge and named explicitly in the erase
+  confirmation dialog.
+- **Retry** — a card that failed gets a one-click **↻ Retry** button that
+  re-flashes just that card with the current form settings, keeping its
+  original hostname/IP index rather than renumbering it as card 1.
+- **History** — collapsible panel showing the last 50 cards flashed
+  (timestamp, device, hostname, status, duration), read from
+  `~/rpi-images/flash-history.csv`.
+- **Browser notification** — check "Notify me when the batch finishes" to
+  get a system notification with a done/failed summary when a batch
+  completes (useful if you tab away during a big run).
+
+## CLI only (no browser, no server)
 
 ```bash
 sudo ./flash-all.sh /dev/sda /dev/sdb /dev/sdc
@@ -111,7 +132,8 @@ sudo ./flash-all.sh /dev/sda /dev/sdb /dev/sdc
 
 Requires `rpi-imager`. Simpler and more portable, but slower than the web UI
 (rpi-imager decompresses and verifies per card rather than sharing one
-decompressed image across all cards).
+decompressed image across all cards), and doesn't have the profiles/history/
+retry/notification features — those are web-UI only.
 
 ## Injecting config into an already-flashed card
 
@@ -131,14 +153,33 @@ sudo ./inject-config.sh /dev/sda            # finds and mounts the boot partitio
 Optionally pass a hostname as a second argument to override the one in
 `config.json`.
 
+## Config field reference
+
+See `config.example.json` for the full set with safe defaults. Notable ones
+beyond the obvious hostname/user/password/Wi-Fi:
+
+| Field | Meaning |
+|---|---|
+| `image_url` | Any Raspberry Pi OS `.img.xz` link. Get current links from https://www.raspberrypi.com/software/operating-systems/, or use one of the UI's built-in presets. |
+| `ssh_authorized_key` | One or more public keys (newline-separated) to install for the configured user. |
+| `disable_ssh_password` | `true` to require key-only SSH login. |
+| `static_ip_base` / `static_ip_cidr` / `static_ip_gateway` / `static_ip_dns` / `static_ip_iface` | Static networking; leave `static_ip_base` empty to use DHCP (default). |
+| `number_hostnames` | `false` to give every card in a batch the identical hostname — fine for one card, a network name conflict for more than one. |
+| `verify` | `true` to always byte-verify after writing. |
+
+Profiles use the same fields; see `profiles.example.json` for two sample
+profiles you can copy to `profiles.json` and adapt (or just build them from
+the UI's **Save as**).
+
 ## Safety
 
 - Only removable block devices are ever listed or written — the device list
   actively excludes anything mounted at `/`, `/boot`, `/boot/firmware`,
   `/home`, or under `/usr`. Fixed internal disks never appear as flashable
   targets.
+- A card smaller than the image is refused before any write starts.
 - The web UI requires an explicit confirmation dialog naming every device
-  before erasing anything.
+  (and any data already on it) before erasing anything.
 - `flash-all.sh` requires typing `yes` before it touches any device.
 - Still — this tool **permanently erases everything** on the cards you
   select. Double-check `lsblk` output before confirming if you have any
@@ -148,12 +189,13 @@ Optionally pass a hostname as a second argument to override the one in
 
 | File | Purpose |
 |---|---|
-| `server.py` | Web UI backend: device detection, parallel `dd` flashing, config injection |
+| `server.py` | Web UI backend: device detection, parallel `dd` flashing, profiles, history, config injection |
 | `index.html` | Web UI frontend |
-| `firstrun_gen.py` | Single shared implementation of the `firstrun.sh` template — used by `server.py`, `inject-config.sh`, and `flash-all.sh` so there's one place to trust, not three |
+| `firstrun_gen.py` | Single shared implementation of the `firstrun.sh` template (hostname, user, SSH keys, Wi-Fi, static IP, timezone, keyboard) — used by `server.py`, `inject-config.sh`, and `flash-all.sh` so there's one place to trust, not three |
 | `flash-all.sh` | CLI-only alternative using `rpi-imager --cli` |
 | `inject-config.sh` | Re-inject config into an already-flashed card |
 | `config.example.json` | Template — copy to `config.json` and edit |
+| `profiles.example.json` | Sample named presets — copy to `profiles.json`, or just build them from the UI |
 | `check-requirements.sh` | Verifies all required tools are installed |
 
 ## License

@@ -1,0 +1,33 @@
+{
+  "classroom-kit": {
+    "hostname": "classroompi",
+    "number_hostnames": true,
+    "user": "student",
+    "password": "changeme",
+    "wifi_ssid": "SchoolWifi",
+    "wifi_password": "",
+    "wifi_country": "US",
+    "timezone": "UTC",
+    "keymap": "us",
+    "enable_ssh": true,
+    "verify": false
+  },
+  "robot-cluster": {
+    "hostname": "bot",
+    "number_hostnames": true,
+    "user": "pi",
+    "password": "changeme",
+    "wifi_ssid": "",
+    "wifi_country": "US",
+    "timezone": "UTC",
+    "keymap": "us",
+    "enable_ssh": true,
+    "ssh_authorized_key": "",
+    "static_ip_base": "192.168.4.10",
+    "static_ip_cidr": 24,
+    "static_ip_gateway": "192.168.4.1",
+    "static_ip_dns": "1.1.1.1",
+    "static_ip_iface": "eth0",
+    "verify": true
+  }
+}

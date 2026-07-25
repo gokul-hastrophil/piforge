@@ -3,9 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pi Mass Flasher</title>
+<title>PiForge</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M32 18c-4-10 6-14 10-10-2 6-6 9-10 10z' fill='%233BAA47'/%3E%3Ccircle cx='24' cy='30' r='9' fill='%23C51A4A'/%3E%3Ccircle cx='40' cy='30' r='9' fill='%23C51A4A'/%3E%3Ccircle cx='32' cy='24' r='9' fill='%23C51A4A'/%3E%3Ccircle cx='24' cy='42' r='9' fill='%23C51A4A'/%3E%3Ccircle cx='40' cy='42' r='9' fill='%23C51A4A'/%3E%3Ccircle cx='32' cy='48' r='8' fill='%23C51A4A'/%3E%3C/svg%3E">
 <style>
-  /* Raspberry Pi brand palette: signature red + Imager-style go-green */
+  /* Raspberry Pi brand palette: signature red + Imager-style go-green. Light theme only, by design. */
   :root {
     --bg: #F5F5F3;
     --panel: #FFFFFF;
@@ -21,23 +22,6 @@
     --warn: #C8790A;
     --accent: #C51A4A;
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #17181A;
-      --panel: #201F22;
-      --line: #343336;
-      --ink: #F2F0EE;
-      --muted: #9C9994;
-      --red: #E23B67;
-      --red-press: #C51A4A;
-      --red-tint: #3A1620;
-      --go: #4FC95C;
-      --go-press: #3BAA47;
-      --bad: #E9605F;
-      --warn: #E0A030;
-      --accent: #E23B67;
-    }
-  }
   * { box-sizing: border-box; }
   html, body { height: 100%; }
   body {
@@ -49,8 +33,9 @@
     display: flex; align-items: center; justify-content: space-between;
     padding: 1rem 1.5rem; background: var(--red); color: #fff;
   }
-  header .brand { font-size: 1.1rem; font-weight: 700; letter-spacing: 0.01em; }
-  header .brand span { color: rgba(255,255,255,0.78); font-weight: 400; }
+  header .brand { display: flex; align-items: center; gap: 0.6rem; font-size: 1.15rem; font-weight: 700; letter-spacing: 0.01em; }
+  header .brand span { color: rgba(255,255,255,0.78); font-weight: 400; font-size: 0.95rem; }
+  header .logo { flex: none; display: block; }
   .counter { font-variant-numeric: tabular-nums; color: rgba(255,255,255,0.85); font-size: 0.95rem; }
   .counter b { color: #fff; font-size: 1.2rem; }
 
@@ -61,37 +46,47 @@
   .root-banner { background: var(--warn); color: #1B1B1B; }
 
   main {
-    flex: 1; display: grid; grid-template-columns: 380px 1fr;
+    flex: 1; display: grid; grid-template-columns: 400px 1fr;
     gap: 1.4rem; padding: 1.4rem 1.5rem; align-items: start;
-    width: 100%; max-width: 1280px; margin: 0 auto;
+    width: 100%; max-width: 1320px; margin: 0 auto;
   }
-  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  @media (max-width: 920px) { main { grid-template-columns: 1fr; } }
 
   .panel {
     background: var(--panel); border: 1px solid var(--line);
     border-radius: 12px; padding: 1.2rem 1.4rem;
     box-shadow: 0 1px 2px rgba(0,0,0,0.04);
   }
+  .panel + .panel { margin-top: 1.4rem; }
   .panel h2 {
     margin: 0 0 1rem; font-size: 0.8rem; text-transform: uppercase;
     letter-spacing: 0.08em; color: var(--muted); font-weight: 650;
   }
+  .subhead {
+    font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.07em;
+    color: var(--muted); font-weight: 700; margin: 1.2rem 0 0.4rem;
+    padding-top: 0.9rem; border-top: 1px solid var(--line);
+  }
+  .subhead:first-of-type { border-top: none; padding-top: 0; margin-top: 0.4rem; }
+
   label { display: block; font-size: 0.8rem; color: var(--muted); margin: 0.7rem 0 0.25rem; }
-  input[type=text], input[type=password], select {
+  input[type=text], input[type=password], input[type=number], select, textarea {
     width: 100%; font: inherit; font-size: 1rem; color: var(--ink);
     background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
     padding: 0.55rem 0.7rem; outline: none;
   }
+  textarea { resize: vertical; min-height: 4.5rem; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.85rem; }
   select { appearance: none; cursor: pointer;
     background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%23767672'><path d='M5.5 7.5l4.5 4.5 4.5-4.5z'/></svg>");
     background-repeat: no-repeat; background-position: right 0.6rem center; background-size: 1.1rem;
     padding-right: 2rem;
   }
-  input:focus-visible, select:focus-visible { border-color: var(--accent); }
+  input:focus-visible, select:focus-visible, textarea:focus-visible { border-color: var(--accent); }
   .row { display: flex; gap: 0.7rem; }
   .row > div { flex: 1; min-width: 0; }
   .check { display: flex; align-items: center; gap: 0.55rem; margin-top: 0.8rem; font-size: 0.9rem; }
   .check input { width: 1.05rem; height: 1.05rem; accent-color: var(--go); }
+  .hint { font-size: 0.75rem; color: var(--muted); margin-top: 0.3rem; }
 
   .pwrap { position: relative; }
   .pwrap input { padding-right: 2.4rem; }
@@ -102,8 +97,18 @@
   }
   .pwrap .eye:hover { color: var(--ink); }
 
+  details.group { margin-top: 0.9rem; }
+  details.group > summary {
+    cursor: pointer; font-size: 0.85rem; font-weight: 650; color: var(--ink);
+    list-style: none; display: flex; align-items: center; gap: 0.4rem;
+  }
+  details.group > summary::-webkit-details-marker { display: none; }
+  details.group > summary::before { content: "▸"; color: var(--muted); font-size: 0.7rem; }
+  details.group[open] > summary::before { content: "▾"; }
+  details.group .body { padding-top: 0.4rem; }
+
   .btnrow { display: flex; gap: 0.6rem; margin-top: 1.2rem; }
-  button.primary, button.secondary {
+  button.primary, button.secondary, button.tiny {
     font: inherit; font-weight: 700; color: #fff; border: none; border-radius: 12px;
     cursor: pointer;
   }
@@ -116,10 +121,18 @@
   button.secondary {
     font-size: 0.85rem; background: transparent; color: var(--muted);
     border: 1px solid var(--line); border-radius: 8px; padding: 0.5rem 0.8rem;
-    white-space: nowrap;
+    white-space: nowrap; flex: 1;
   }
   button.secondary:hover { color: var(--ink); border-color: var(--muted); }
   button.secondary.saved { color: var(--go); border-color: var(--go); }
+  button.tiny {
+    font-size: 0.75rem; background: var(--line); color: var(--ink);
+    border-radius: 6px; padding: 0.35rem 0.6rem; flex: none;
+  }
+  button.tiny:hover { background: var(--muted); color: #fff; }
+  button.tiny.danger:hover { background: var(--bad); }
+  button.tiny.retry { background: var(--red-tint); color: var(--red); }
+  button.tiny.retry:hover { background: var(--red); color: #fff; }
 
   .warnbox { color: var(--warn); font-size: 0.85rem; margin-top: 0.9rem; }
   .warnbox code { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 0.05rem 0.3rem; }
@@ -139,6 +152,10 @@
   .devname span { color: var(--muted); font-weight: 400; }
   .devmeta { color: var(--muted); font-size: 0.85rem; }
   .devmsg { font-size: 0.85rem; margin-top: 0.35rem; overflow-wrap: anywhere; }
+  .databadge {
+    display: inline-block; font-size: 0.7rem; font-weight: 700; color: var(--warn);
+    background: #FBF0DC; border-radius: 6px; padding: 0.1rem 0.4rem; margin-top: 0.3rem;
+  }
   .bar {
     height: 0.55rem; border-radius: 4px; background: var(--line);
     overflow: hidden; margin-top: 0.45rem; display: none;
@@ -148,6 +165,7 @@
     transform: scaleX(0); transform-origin: left; transition: transform 0.7s linear;
   }
   .bar.verify i { background: var(--warn); }
+  .devside { display: flex; flex-direction: column; align-items: flex-end; gap: 0.4rem; flex: none; }
 
   .tag {
     flex: none; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em;
@@ -157,11 +175,6 @@
   .tag.verifying { background: #FBF0DC; color: var(--warn); }
   .tag.done { background: #E4F5E6; color: var(--go); }
   .tag.error { background: #FCE4E4; color: var(--bad); }
-  @media (prefers-color-scheme: dark) {
-    .tag.verifying { background: #3A2E12; }
-    .tag.done { background: #16341C; }
-    .tag.error { background: #3A1616; }
-  }
 
   @keyframes pulse { 0%,100% { opacity: 0.45; } 50% { opacity: 1; } }
   .pulse { animation: pulse 2.2s ease-in-out infinite; }
@@ -172,6 +185,15 @@
   .empty h3 { margin: 0 0 0.3rem; color: var(--ink); font-size: 1.4rem; }
 
   .scanstate { font-size: 0.8rem; color: var(--muted); text-transform: none; letter-spacing: 0; }
+
+  table.history { width: 100%; border-collapse: collapse; font-size: 0.82rem; margin-top: 0.8rem; }
+  table.history th, table.history td {
+    text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--line);
+  }
+  table.history th { color: var(--muted); font-weight: 650; font-size: 0.72rem; text-transform: uppercase; }
+  table.history td.status-done { color: var(--go); font-weight: 650; }
+  table.history td.status-error { color: var(--bad); font-weight: 650; }
+
   footer {
     color: var(--muted); font-size: 0.8rem; text-align: center;
     padding: 0.8rem 1.5rem 1.2rem;
@@ -182,76 +204,160 @@
 <div class="offline-banner" id="offline">Station program not responding. Tell your supervisor.</div>
 <div class="root-banner" id="rootwarn">Flashing disabled — restart the station program with: sudo python3 server.py</div>
 <header>
-  <div class="brand">🍓 Pi Mass Flasher <span>· parallel SD card writer</span></div>
+  <div class="brand">
+    <svg class="logo" width="30" height="30" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+      <path d="M32 18c-4-10 6-14 10-10-2 6-6 9-10 10z" fill="#3BAA47"/>
+      <circle cx="24" cy="30" r="9" fill="#fff"/>
+      <circle cx="40" cy="30" r="9" fill="#fff"/>
+      <circle cx="32" cy="24" r="9" fill="#fff"/>
+      <circle cx="24" cy="42" r="9" fill="#fff"/>
+      <circle cx="40" cy="42" r="9" fill="#fff"/>
+      <circle cx="32" cy="48" r="8" fill="#fff"/>
+    </svg>
+    PiForge <span>· mass SD card installer</span>
+  </div>
   <div class="counter">Cards done: <b id="count">0</b></div>
 </header>
 
 <main>
-  <section class="panel">
-    <h2>Card setup</h2>
-    <label>Hostname base</label>
-    <input type="text" id="hostname" placeholder="raspberrypi">
-    <div class="check">
-      <input type="checkbox" id="number_hostnames" checked>
-      <span>Number each card (name1, name2…)</span>
-    </div>
-    <label>Username</label>
-    <input type="text" id="user" placeholder="pi">
-    <label>Password</label>
-    <div class="pwrap">
-      <input type="password" id="password" placeholder="">
-      <button type="button" class="eye" data-for="password" aria-label="Show password">👁</button>
-    </div>
-    <div class="row">
-      <div>
-        <label>Wi-Fi SSID</label>
-        <input type="text" id="wifi_ssid" placeholder="(optional)">
+  <div>
+    <section class="panel">
+      <h2>Profile</h2>
+      <div class="row">
+        <div>
+          <select id="profile_select"><option value="">— none —</option></select>
+        </div>
+        <button type="button" class="tiny danger" id="btn-profile-delete" title="Delete selected profile">🗑</button>
       </div>
-      <div>
-        <label>Wi-Fi password</label>
-        <div class="pwrap">
-          <input type="password" id="wifi_password" placeholder="">
-          <button type="button" class="eye" data-for="wifi_password" aria-label="Show password">👁</button>
+      <div class="row" style="margin-top:0.5rem">
+        <div><input type="text" id="profile_name" placeholder="New profile name"></div>
+        <button type="button" class="tiny" id="btn-profile-save" title="Save current form as this profile">💾 Save as</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Card setup</h2>
+      <label>Hostname base</label>
+      <input type="text" id="hostname" placeholder="raspberrypi">
+      <div class="check">
+        <input type="checkbox" id="number_hostnames" checked>
+        <span>Number each card (name1, name2…)</span>
+      </div>
+      <label>Username</label>
+      <input type="text" id="user" placeholder="pi">
+      <label>Password</label>
+      <div class="pwrap">
+        <input type="password" id="password" placeholder="">
+        <button type="button" class="eye" data-for="password" aria-label="Show password">👁</button>
+      </div>
+
+      <div class="subhead">Network</div>
+      <div class="row">
+        <div>
+          <label>Wi-Fi SSID</label>
+          <input type="text" id="wifi_ssid" placeholder="(optional)">
+        </div>
+        <div>
+          <label>Wi-Fi password</label>
+          <div class="pwrap">
+            <input type="password" id="wifi_password" placeholder="">
+            <button type="button" class="eye" data-for="wifi_password" aria-label="Show password">👁</button>
+          </div>
         </div>
       </div>
-    </div>
-    <div class="row">
-      <div>
-        <label>Wi-Fi country</label>
-        <select id="wifi_country"></select>
+      <div class="row">
+        <div>
+          <label>Wi-Fi country</label>
+          <select id="wifi_country"></select>
+        </div>
+        <div>
+          <label>Timezone</label>
+          <select id="timezone"></select>
+        </div>
       </div>
-      <div>
-        <label>Timezone</label>
-        <select id="timezone"></select>
-      </div>
-    </div>
-    <div class="check">
-      <input type="checkbox" id="enable_ssh" checked>
-      <span>Enable SSH</span>
-    </div>
-    <div class="check">
-      <input type="checkbox" id="verify">
-      <span>Verify after write (slower, ~2×)</span>
-    </div>
-    <div class="btnrow">
-      <button type="button" class="secondary" id="btn-remember">💾 Remember settings</button>
-      <button type="button" class="secondary" id="btn-reset">↺ Reset</button>
-    </div>
-    <button class="primary" id="btn-flash" disabled>SELECT CARDS</button>
-    <div class="warnbox">START erases every selected card completely.
-    OS image is set in <code>config.json</code> (<code>image_url</code>) — see README.</div>
-  </section>
+      <label>Keyboard layout</label>
+      <select id="keymap"></select>
+      <input type="text" id="keymap_custom" placeholder="custom XKB code" style="display:none; margin-top:0.4rem">
 
-  <section class="panel">
-    <h2>Detected SD cards <span class="scanstate" id="scanstate"></span></h2>
-    <div class="devgrid" id="devgrid">
-      <div class="empty">
-        <div class="bigicon pulse">🗂️</div>
-        <h3>Insert SD cards</h3>
-        <p>Cards are found automatically. Plug in as many as you want to flash.</p>
+      <details class="group" id="staticip_group">
+        <summary>Static IP (optional — per card, auto-numbered)</summary>
+        <div class="body">
+          <label>Base address</label>
+          <input type="text" id="static_ip_base" placeholder="e.g. 192.168.50.10">
+          <div class="hint">Card 1 gets this address, card 2 gets +1, etc.</div>
+          <div class="row" style="margin-top:0.5rem">
+            <div><label>CIDR</label><input type="number" id="static_ip_cidr" placeholder="24" min="1" max="32"></div>
+            <div><label>Interface</label>
+              <select id="static_ip_iface"><option value="eth0">eth0</option><option value="wlan0">wlan0</option></select>
+            </div>
+          </div>
+          <div class="row" style="margin-top:0.5rem">
+            <div><label>Gateway</label><input type="text" id="static_ip_gateway" placeholder="192.168.50.1"></div>
+            <div><label>DNS</label><input type="text" id="static_ip_dns" placeholder="1.1.1.1"></div>
+          </div>
+        </div>
+      </details>
+
+      <details class="group" id="sshkey_group">
+        <summary>SSH access</summary>
+        <div class="body">
+          <div class="check">
+            <input type="checkbox" id="enable_ssh" checked>
+            <span>Enable SSH</span>
+          </div>
+          <label>Authorized public key(s)</label>
+          <textarea id="ssh_authorized_key" placeholder="ssh-ed25519 AAAA... you@host"></textarea>
+          <div class="check">
+            <input type="checkbox" id="disable_ssh_password">
+            <span>Disable password login (key-only)</span>
+          </div>
+        </div>
+      </details>
+
+      <div class="subhead">OS image</div>
+      <select id="image_preset"></select>
+      <input type="text" id="image_url_custom" placeholder="https://.../image.img.xz" style="display:none; margin-top:0.4rem">
+
+      <div class="subhead">Options</div>
+      <div class="check">
+        <input type="checkbox" id="verify">
+        <span>Verify after write (slower, ~2×)</span>
       </div>
-    </div>
-  </section>
+      <div class="check">
+        <input type="checkbox" id="notify_on_finish">
+        <span>🔔 Notify me when the batch finishes</span>
+      </div>
+
+      <div class="btnrow">
+        <button type="button" class="secondary" id="btn-remember">💾 Remember settings</button>
+        <button type="button" class="secondary" id="btn-reset">↺ Reset</button>
+      </div>
+      <button class="primary" id="btn-flash" disabled>SELECT CARDS</button>
+      <div class="warnbox">START erases every selected card completely.</div>
+    </section>
+  </div>
+
+  <div>
+    <section class="panel">
+      <h2>Detected SD cards <span class="scanstate" id="scanstate"></span></h2>
+      <div class="devgrid" id="devgrid">
+        <div class="empty">
+          <div class="bigicon pulse">🗂️</div>
+          <h3>Insert SD cards</h3>
+          <p>Cards are found automatically. Plug in as many as you want to flash.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <details id="history_group">
+        <summary style="cursor:pointer; font-size:0.8rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--muted); font-weight:650;">🕘 History</summary>
+        <div id="history_body">
+          <p class="hint">Opens on click — shows the last 50 cards flashed.</p>
+        </div>
+      </details>
+    </section>
+  </div>
 </main>
 
 <footer>Auto-refresh every 2 s · only removable, non-system drives are shown ·
@@ -259,10 +365,13 @@ all selected cards are written in parallel</footer>
 
 <script>
   const $ = id => document.getElementById(id);
-  let devices = [], flashing = false, misses = 0;
+  let devices = [], flashing = false, wasFlashing = false, misses = 0;
   const selected = new Set();
   const BUSY = ["queued", "downloading", "writing", "verifying", "configuring"];
-  const STORAGE_KEY = "piMassFlasherConfig";
+  const STORAGE_KEY = "piForgeConfig";
+
+  const esc = s => String(s).replace(/[&<>"']/g, c =>
+    ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
 
   // ---- ISO 3166-1 alpha-2 country codes -> names, for the Wi-Fi regulatory
   // domain dropdown. Static list (no network dependency at render time).
@@ -342,6 +451,71 @@ all selected cards are written in parallel</footer>
     sel.innerHTML = zones.map(z => `<option value="${esc(z)}">${esc(z)}</option>`).join("");
   }
 
+  // ---- Keyboard layouts: curated common XKB layout codes (same codes
+  // Raspberry Pi Imager itself uses), plus a free-text escape hatch.
+  const KEYMAPS = [
+    ["us","US English"],["gb","UK English"],["de","German"],["fr","French"],["es","Spanish"],
+    ["it","Italian"],["pt","Portuguese"],["nl","Dutch"],["be","Belgian"],["ch","Swiss"],
+    ["at","Austrian"],["se","Swedish"],["no","Norwegian"],["dk","Danish"],["fi","Finnish"],
+    ["pl","Polish"],["cz","Czech"],["sk","Slovak"],["hu","Hungarian"],["ro","Romanian"],
+    ["bg","Bulgarian"],["gr","Greek"],["tr","Turkish"],["ru","Russian"],["ua","Ukrainian"],
+    ["il","Hebrew"],["in","Indian"],["jp","Japanese"],["kr","Korean"],["cn","Chinese"],
+    ["th","Thai"],["vn","Vietnamese"],["id","Indonesian"],["my","Malay"],["sg","Singaporean"],
+    ["ph","Filipino"],["au","Australian"],["nz","New Zealand"],["ca","Canadian"],["mx","Mexican"],
+    ["br","Brazilian"],["ar","Argentinian"],["cl","Chilean"],["co","Colombian"],["pe","Peruvian"],
+    ["za","South African"],["eg","Egyptian"],["ie","Irish"],["hr","Croatian"],["si","Slovenian"],
+    ["ee","Estonian"],["lv","Latvian"],["lt","Lithuanian"],
+  ];
+
+  function populateKeymaps() {
+    const sel = $("keymap");
+    sel.innerHTML = KEYMAPS.map(([code, name]) =>
+      `<option value="${code}">${esc(name)} (${code})</option>`).join("")
+      + `<option value="__custom__">Other (type code)…</option>`;
+    sel.addEventListener("change", () => {
+      $("keymap_custom").style.display = sel.value === "__custom__" ? "block" : "none";
+    });
+  }
+
+  // ---- OS image presets: Raspberry Pi Foundation's stable "latest" redirect
+  // links, so the image stays current without editing config.json by hand.
+  const IMAGE_PRESETS = [
+    ["Raspberry Pi OS (64-bit, Desktop, current)", "https://downloads.raspberrypi.com/raspios_arm64_latest"],
+    ["Raspberry Pi OS (64-bit, Lite, current)", "https://downloads.raspberrypi.com/raspios_lite_arm64_latest"],
+    ["Raspberry Pi OS Full (64-bit, current, extra apps)", "https://downloads.raspberrypi.com/raspios_full_arm64_latest"],
+    ["Raspberry Pi OS Legacy Bookworm (64-bit, Desktop)", "https://downloads.raspberrypi.com/raspios_oldstable_arm64_latest"],
+    ["Raspberry Pi OS Legacy Bookworm (64-bit, Lite)", "https://downloads.raspberrypi.com/raspios_oldstable_lite_arm64_latest"],
+    ["Raspberry Pi OS Legacy Bookworm (64-bit, Full)", "https://downloads.raspberrypi.com/raspios_oldstable_full_arm64_latest"],
+  ];
+
+  function populateImagePresets() {
+    const sel = $("image_preset");
+    sel.innerHTML = IMAGE_PRESETS.map(([label, url]) =>
+      `<option value="${esc(url)}">${esc(label)}</option>`).join("")
+      + `<option value="__custom__">Custom URL…</option>`;
+    sel.addEventListener("change", () => {
+      $("image_url_custom").style.display = sel.value === "__custom__" ? "block" : "none";
+    });
+  }
+
+  function currentImageUrl() {
+    const sel = $("image_preset");
+    return sel.value === "__custom__" ? $("image_url_custom").value.trim() : sel.value;
+  }
+
+  function setImageUrl(url) {
+    const sel = $("image_preset");
+    const known = IMAGE_PRESETS.some(([, u]) => u === url);
+    if (known) {
+      sel.value = url;
+      $("image_url_custom").style.display = "none";
+    } else if (url) {
+      sel.value = "__custom__";
+      $("image_url_custom").value = url;
+      $("image_url_custom").style.display = "block";
+    }
+  }
+
   // ---- Password show/hide ----
   document.querySelectorAll(".eye").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -351,6 +525,18 @@ all selected cards are written in parallel</footer>
       btn.textContent = showing ? "👁" : "🙈";
       btn.setAttribute("aria-label", showing ? "Show password" : "Hide password");
     });
+  });
+
+  // ---- Notification permission ----
+  $("notify_on_finish").addEventListener("change", async () => {
+    const cb = $("notify_on_finish");
+    if (!cb.checked) return;
+    if (!("Notification" in window)) { alert("This browser doesn't support notifications."); cb.checked = false; return; }
+    if (Notification.permission === "denied") { alert("Notifications are blocked for this page in your browser settings."); cb.checked = false; return; }
+    if (Notification.permission !== "granted") {
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") cb.checked = false;
+    }
   });
 
   function readForm() {
@@ -363,9 +549,18 @@ all selected cards are written in parallel</footer>
       wifi_password: $("wifi_password").value,
       wifi_country: $("wifi_country").value,
       timezone: $("timezone").value,
+      keymap: $("keymap").value === "__custom__" ? $("keymap_custom").value.trim() : $("keymap").value,
       enable_ssh: $("enable_ssh").checked,
+      ssh_authorized_key: $("ssh_authorized_key").value,
+      disable_ssh_password: $("disable_ssh_password").checked,
+      static_ip_base: $("static_ip_base").value.trim(),
+      static_ip_cidr: parseInt($("static_ip_cidr").value, 10) || 24,
+      static_ip_gateway: $("static_ip_gateway").value.trim(),
+      static_ip_dns: $("static_ip_dns").value.trim(),
+      static_ip_iface: $("static_ip_iface").value,
+      image_url: currentImageUrl(),
       verify: $("verify").checked,
-      keymap: "us",
+      notify_on_finish: $("notify_on_finish").checked,
     };
   }
 
@@ -396,8 +591,19 @@ all selected cards are written in parallel</footer>
     $("wifi_password").value = cfg.wifi_password ?? "";
     if (cfg.wifi_country) setSelectValue($("wifi_country"), cfg.wifi_country.toUpperCase());
     if (cfg.timezone) setSelectValue($("timezone"), cfg.timezone);
+    if (cfg.keymap) setSelectValue($("keymap"), cfg.keymap);
+    $("keymap_custom").style.display = $("keymap").value === "__custom__" ? "block" : "none";
     $("enable_ssh").checked = cfg.enable_ssh !== false;
+    $("ssh_authorized_key").value = cfg.ssh_authorized_key ?? "";
+    $("disable_ssh_password").checked = !!cfg.disable_ssh_password;
+    $("static_ip_base").value = cfg.static_ip_base ?? "";
+    $("static_ip_cidr").value = cfg.static_ip_cidr ?? 24;
+    $("static_ip_gateway").value = cfg.static_ip_gateway ?? "";
+    $("static_ip_dns").value = cfg.static_ip_dns ?? "";
+    $("static_ip_iface").value = cfg.static_ip_iface ?? "eth0";
+    if (cfg.image_url) setImageUrl(cfg.image_url);
     $("verify").checked = !!cfg.verify;
+    $("notify_on_finish").checked = !!cfg.notify_on_finish;
   }
 
   // Baseline is always config.json (via the server) so a fresh browser with
@@ -428,8 +634,65 @@ all selected cards are written in parallel</footer>
     loadDefaults();
   });
 
-  const esc = s => String(s).replace(/[&<>"']/g, c =>
-    ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+  // ---- Profiles ----
+  async function refreshProfiles(selectName) {
+    const profiles = await (await fetch("/api/profiles")).json();
+    const sel = $("profile_select");
+    sel.innerHTML = `<option value="">— none —</option>` +
+      Object.keys(profiles).sort().map(name =>
+        `<option value="${esc(name)}">${esc(name)}</option>`).join("");
+    if (selectName) sel.value = selectName;
+    return profiles;
+  }
+
+  $("profile_select").addEventListener("change", async () => {
+    const name = $("profile_select").value;
+    if (!name) return;
+    const profiles = await refreshProfiles(name);
+    if (profiles[name]) applyToForm(profiles[name]);
+  });
+
+  $("btn-profile-save").addEventListener("click", async () => {
+    const name = $("profile_name").value.trim();
+    if (!name) { alert("Enter a profile name first."); return; }
+    await fetch("/api/profiles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, config: readForm() }),
+    });
+    $("profile_name").value = "";
+    await refreshProfiles(name);
+  });
+
+  $("btn-profile-delete").addEventListener("click", async () => {
+    const name = $("profile_select").value;
+    if (!name) return;
+    if (!confirm(`Delete profile "${name}"?`)) return;
+    await fetch(`/api/profiles?name=${encodeURIComponent(name)}`, { method: "DELETE" });
+    await refreshProfiles();
+  });
+
+  // ---- History ----
+  let historyLoaded = false;
+  $("history_group").addEventListener("toggle", async () => {
+    if (!$("history_group").open) return;
+    const { rows } = await (await fetch("/api/history")).json();
+    const body = $("history_body");
+    if (!rows.length) {
+      body.innerHTML = `<p class="hint">No cards flashed yet.</p>`;
+      return;
+    }
+    body.innerHTML = `<table class="history"><thead><tr>
+      <th>Time</th><th>Device</th><th>Hostname</th><th>Status</th><th>Duration</th>
+      </tr></thead><tbody>${rows.map(r => `<tr>
+        <td>${esc(r.timestamp || "")}</td>
+        <td>${esc(r.device || "")}</td>
+        <td>${esc(r.hostname || "")}</td>
+        <td class="status-${esc(r.status || "")}">${esc((r.status || "").toUpperCase())}</td>
+        <td>${esc(r.duration_s || "")}s</td>
+      </tr>`).join("")}</tbody></table>`;
+    historyLoaded = true;
+  });
 
   function render() {
     const grid = $("devgrid");
@@ -454,11 +717,15 @@ all selected cards are written in parallel</footer>
           <div class="devname">${esc(d.device)}
             ${job.hostname ? `<span>· ${esc(job.hostname)}</span>` : ""}</div>
           <div class="devmeta">${esc(d.model)} · ${esc(d.size_h)}${d.tran ? " · " + esc(d.tran) : ""}</div>
+          ${d.has_data ? `<div class="databadge">⚠ has data: ${esc((d.fstypes || []).join(", "))}</div>` : ""}
           ${job.message ? `<div class="devmsg">${esc(job.message)}</div>` : ""}
           <div class="bar ${st === "verifying" ? "verify" : ""}"
                style="display:${busy ? "block" : "none"}"><i style="transform:scaleX(${pct / 100})"></i></div>
         </div>
-        ${st ? `<span class="tag ${esc(st)} ${busy ? "pulse" : ""}">${esc(st.toUpperCase())}</span>` : ""}
+        <div class="devside">
+          ${st ? `<span class="tag ${esc(st)} ${busy ? "pulse" : ""}">${esc(st.toUpperCase())}</span>` : ""}
+          ${st === "error" && !flashing ? `<button type="button" class="tiny retry" data-retry="${esc(d.device)}">↻ Retry</button>` : ""}
+        </div>
       </div>`;
     }).join("");
     grid.querySelectorAll("input[data-dev]").forEach(cb =>
@@ -466,6 +733,8 @@ all selected cards are written in parallel</footer>
         cb.checked ? selected.add(cb.dataset.dev) : selected.delete(cb.dataset.dev);
         render();
       }));
+    grid.querySelectorAll("button[data-retry]").forEach(btn =>
+      btn.addEventListener("click", () => startFlashing([btn.dataset.retry])));
     updateButton();
   }
 
@@ -504,12 +773,25 @@ all selected cards are written in parallel</footer>
         : prep.phase === "extract" ? `· extracting image ${prep.percent}%`
         : "· image prepares on first flash");
     render();
+
+    if (wasFlashing && !flashing && $("notify_on_finish").checked
+        && "Notification" in window && Notification.permission === "granted") {
+      const done = devices.filter(d => (d.job || {}).state === "done").length;
+      const errored = devices.filter(d => (d.job || {}).state === "error").length;
+      new Notification("PiForge batch finished", {
+        body: `${done} card${done === 1 ? "" : "s"} done` + (errored ? `, ${errored} failed` : ""),
+      });
+    }
+    wasFlashing = flashing;
   }
 
-  $("btn-flash").addEventListener("click", async () => {
-    const devs = [...selected].sort();
+  async function startFlashing(devs) {
     if (!devs.length) return;
-    if (!confirm("PERMANENTLY ERASE everything on:\n\n" + devs.join("\n") +
+    const lines = devs.map(dev => {
+      const d = devices.find(x => x.device === dev);
+      return dev + (d && d.has_data ? ` (contains: ${(d.fstypes || []).join(", ")})` : "");
+    });
+    if (!confirm("PERMANENTLY ERASE everything on:\n\n" + lines.join("\n") +
                  "\n\nand install Raspberry Pi OS. Continue?")) return;
     const config = readForm();
     const r = await fetch("/api/flash", {
@@ -521,11 +803,16 @@ all selected cards are written in parallel</footer>
     if (res.error) alert("Error: " + res.error);
     else { flashing = true; updateButton(); }
     poll();
-  });
+  }
+
+  $("btn-flash").addEventListener("click", () => startFlashing([...selected].sort()));
 
   populateCountries();
   populateTimezones();
+  populateKeymaps();
+  populateImagePresets();
   loadDefaults();
+  refreshProfiles();
   setInterval(poll, 2000);
   poll();
 </script>
