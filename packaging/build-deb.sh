@@ -25,7 +25,8 @@ mkdir -p "$BUILD_DIR/DEBIAN" \
          "$BUILD_DIR/opt/piforge" \
          "$BUILD_DIR/usr/bin" \
          "$BUILD_DIR/usr/share/applications" \
-         "$BUILD_DIR/usr/share/icons/hicolor/scalable/apps"
+         "$BUILD_DIR/usr/share/icons/hicolor/scalable/apps" \
+         "$BUILD_DIR/usr/share/polkit-1/actions"
 
 # --- app files (never config.json/profiles.json — those hold real secrets
 #     and are gitignored; the packaged app ships only the .example templates) ---
@@ -42,8 +43,11 @@ cp -p "${REPO_DIR}"/server.py \
       "$BUILD_DIR/opt/piforge/"
 
 install -m 0755 "${SELF_DIR}/piforge" "$BUILD_DIR/usr/bin/piforge"
+install -m 0755 "${SELF_DIR}/piforge-server-root" "$BUILD_DIR/opt/piforge/piforge-server-root"
 install -m 0644 "${SELF_DIR}/debian/piforge.desktop" "$BUILD_DIR/usr/share/applications/piforge.desktop"
 install -m 0644 "${SELF_DIR}/piforge.svg" "$BUILD_DIR/usr/share/icons/hicolor/scalable/apps/piforge.svg"
+install -m 0644 "${SELF_DIR}/debian/io.github.gokul-hastrophil.piforge.policy" \
+    "$BUILD_DIR/usr/share/polkit-1/actions/io.github.gokul-hastrophil.piforge.policy"
 
 INSTALLED_SIZE_KB=$(du -sk "$BUILD_DIR/opt" "$BUILD_DIR/usr" | awk '{sum+=$1} END {print sum}')
 

@@ -35,6 +35,18 @@ jobs:
             bash -n "$f"
           done
 
+      - name: POSIX sh scripts parse (sh -n)
+        run: |
+          set -e
+          # piforge-server-root declares #!/bin/sh, not bash — validate it
+          # with the shell it actually declares (flagged by CodeRabbit's
+          # automated review; bash -n is a superset parser and can accept
+          # things a real POSIX sh would reject).
+          for f in packaging/piforge-server-root; do
+            echo "-- $f"
+            sh -n "$f"
+          done
+
       - name: Python files parse (ast.parse)
         run: |
           python3 -c "
@@ -77,6 +89,33 @@ jobs:
 
       - name: .desktop file validates
         run: desktop-file-validate packaging/debian/piforge.desktop
+
+      - name: polkit .policy file matches its declared contract exactly
+        run: |
+          python3 -c "
+          import xml.dom.minidom as m
+          EXPECTED_ID = 'io.github.gokul-hastrophil.piforge.run-server'
+          EXPECTED_EXEC_PATH = '/opt/piforge/piforge-server-root'
+
+          d = m.parse('packaging/debian/io.github.gokul-hastrophil.piforge.policy')
+          actions = d.getElementsByTagName('action')
+          assert len(actions) == 1, f'expected one action, found {len(actions)}'
+          action = actions[0]
+          action_id = action.getAttribute('id')
+          assert action_id == EXPECTED_ID, f'action id {action_id!r} != {EXPECTED_ID!r}'
+
+          annotations = [
+              a for a in action.getElementsByTagName('annotate')
+              if a.getAttribute('key') == 'org.freedesktop.policykit.exec.path'
+          ]
+          assert len(annotations) == 1, (
+              f'expected one exec.path annotation, found {len(annotations)}'
+          )
+          exec_path = annotations[0].firstChild.nodeValue
+          assert exec_path == EXPECTED_EXEC_PATH, f'exec.path {exec_path!r} != {EXPECTED_EXEC_PATH!r}'
+
+          print('policy OK — action id and exec.path match exactly:', action_id, exec_path)
+          "
 
       - name: packaging/piforge (native app) parses
         run: python3 -c "import ast; ast.parse(open('packaging/piforge').read()); print('packaging/piforge OK')"
