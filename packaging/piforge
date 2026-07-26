@@ -1,52 +1,131 @@
-#!/bin/bash
+#!/usr/bin/env python3
 #
-# PiForge desktop launcher — installed as /usr/bin/piforge.
+# PiForge desktop app — installed as /usr/bin/piforge.
+#
+# A real native window (GTK3 + WebKit2), not a browser dressed up in
+# "--app=" mode: own title bar, own taskbar/dock entry and icon, no
+# address bar, no tabs, no browser context menu. This is what makes it
+# feel like an installed system app (Raspberry Pi Imager, GParted, etc.)
+# instead of "a website you navigated to". Depends only on apt packages
+# (python3-gi + webkit2gtk), never pip.
 #
 # Flashing needs root (raw block-device writes), so this starts server.py
-# via pkexec — a native graphical password prompt — instead of requiring
-# a terminal and `sudo`. Then opens the UI in an app-style browser window
-# (no address bar/tabs) if a suitable browser is available, else falls
-# back to the system default via xdg-open.
-#
-set -uo pipefail
+# via pkexec — a native graphical password prompt — the first time it's
+# needed, then reuses that running server on every later launch.
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
 
-INSTALL_DIR="/opt/piforge"
-PORT=47823
-URL="http://127.0.0.1:${PORT}/"
-LOG="/tmp/piforge-server.log"
+import gi
+gi.require_version("Gtk", "3.0")
+try:
+    gi.require_version("WebKit2", "4.1")
+    from gi.repository import WebKit2
+except ValueError:
+    gi.require_version("WebKit2", "4.0")
+    from gi.repository import WebKit2
+from gi.repository import Gtk, Gdk, GLib
 
-server_up() { curl -fs -o /dev/null "$URL"; }
+INSTALL_DIR = "/opt/piforge"
+ICON_PATH = "/usr/share/icons/hicolor/scalable/apps/piforge.svg"
+PORT = 47823
+URL = f"http://127.0.0.1:{PORT}/"
+LOG_PATH = "/tmp/piforge-server.log"
 
-if ! server_up; then
-    pkexec python3 "$INSTALL_DIR/server.py" >"$LOG" 2>&1 &
-    disown
-    for _ in $(seq 1 40); do
-        server_up && break
-        sleep 0.5
-    done
-    if ! server_up; then
-        echo "PiForge server didn't start — see $LOG" >&2
-        zenity --error --text "PiForge couldn't start (see $LOG)" 2>/dev/null \
-            || notify-send "PiForge" "Couldn't start — see $LOG" 2>/dev/null \
-            || true
-        exit 1
-    fi
-fi
-# Deliberately never auto-kills the server on window close: some browsers
-# reuse an existing background process and return control immediately
-# instead of blocking until the window closes, which would risk killing
-# the server (and any card mid-write) the moment this script guesses
-# wrong. It's bound to 127.0.0.1 only; relaunching PiForge later reuses
-# the same server via the server_up check above instead of starting a
-# second one. Stop it explicitly if you want to: pkill -f server.py
 
-BROWSER=""
-for b in chromium chromium-browser google-chrome google-chrome-stable brave-browser; do
-    command -v "$b" >/dev/null 2>&1 && { BROWSER="$b"; break; }
-done
+def server_up():
+    try:
+        urllib.request.urlopen(URL, timeout=1.5)
+        return True
+    except (urllib.error.URLError, OSError):
+        return False
 
-if [ -n "$BROWSER" ]; then
-    "$BROWSER" --app="$URL" --new-window >/dev/null 2>&1 &
-else
-    xdg-open "$URL" >/dev/null 2>&1
-fi
+
+def server_busy():
+    """True if any card is mid-flash — used to guard against closing the
+    window (and killing the server under it) while a card is writing."""
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/api/devices", timeout=2) as r:
+            import json
+            return json.load(r).get("flashing", False)
+    except Exception:
+        return False
+
+
+def start_server():
+    """Returns True if we're the one who started it (so we know it's ours
+    to stop later); False if it was already running."""
+    if server_up():
+        return False
+    with open(LOG_PATH, "w") as log:
+        subprocess.Popen(["pkexec", "python3", f"{INSTALL_DIR}/server.py"],
+                         stdout=log, stderr=subprocess.STDOUT)
+    for _ in range(40):
+        if server_up():
+            return True
+        time.sleep(0.5)
+    show_error(f"PiForge server didn't start — see {LOG_PATH}")
+    sys.exit(1)
+
+
+def show_error(message):
+    dialog = Gtk.MessageDialog(
+        transient_for=None, flags=0, message_type=Gtk.MessageType.ERROR,
+        buttons=Gtk.ButtonsType.OK, text="PiForge")
+    dialog.format_secondary_text(message)
+    dialog.run()
+    dialog.destroy()
+
+
+class PiForgeWindow(Gtk.Window):
+    def __init__(self, we_started_server):
+        super().__init__(title="PiForge")
+        self.we_started_server = we_started_server
+        self.set_default_size(1320, 900)
+        try:
+            self.set_icon_from_file(ICON_PATH)
+        except GLib.Error:
+            pass  # icon theme lookup can be flaky in some minimal setups; non-fatal
+
+        self.webview = WebKit2.WebView()
+        settings = self.webview.get_settings()
+        settings.set_enable_developer_extras(False)
+        self.webview.load_uri(URL)
+        # A right-click "Inspect Element" browser menu would break the
+        # native-app illusion — suppress it.
+        self.webview.connect("context-menu", lambda *a: True)
+        self.add(self.webview)
+
+        self.connect("delete-event", self.on_close)
+
+    def on_close(self, *_args):
+        if server_busy():
+            dialog = Gtk.MessageDialog(
+                transient_for=self, flags=0, message_type=Gtk.MessageType.WARNING,
+                buttons=Gtk.ButtonsType.YES_NO,
+                text="A flash is in progress")
+            dialog.format_secondary_text(
+                "Closing PiForge now will stop the server and leave any card "
+                "that's writing incomplete. Close anyway?")
+            response = dialog.run()
+            dialog.destroy()
+            if response != Gtk.ResponseType.YES:
+                return True  # cancel the close
+
+        if self.we_started_server:
+            subprocess.run(["pkill", "-f", f"{INSTALL_DIR}/server.py"])
+        Gtk.main_quit()
+        return False
+
+
+def main():
+    we_started_server = start_server()
+    win = PiForgeWindow(we_started_server)
+    win.show_all()
+    Gtk.main()
+
+
+if __name__ == "__main__":
+    main()

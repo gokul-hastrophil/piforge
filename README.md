@@ -31,8 +31,12 @@ it's ready to use — no terminal, no manual `sudo python3 server.py`:
   needed. The server then keeps running quietly in the background
   (bound to `127.0.0.1` only) so relaunching PiForge later reuses it
   instantly instead of prompting again.
-- It opens in its own app-style window (no address bar/tabs) if you have
-  Chromium, Chrome, or Brave installed; otherwise your default browser.
+- It opens as a genuine native window (GTK3 + WebKit2) — its own title
+  bar, its own entry in the taskbar/dock with the app icon, no address
+  bar, no tabs, no browser right-click menu. Not a browser window
+  pretending to be an app; there's no browser involved at all. Closing it
+  warns first if a card is still writing, so you can't accidentally kill
+  a flash in progress.
 
 Uninstall with `sudo apt remove piforge`. To rebuild after making changes,
 just rerun `./packaging/build-deb.sh` — it regenerates the package fresh
@@ -243,7 +247,7 @@ the UI's **Save as**).
 | `check-requirements.sh` | Verifies all required tools are installed |
 | `VERSION` | Single source of truth for the package version |
 | `packaging/build-deb.sh` | Builds the `.deb` from the current repo contents |
-| `packaging/piforge` | Desktop launcher installed as `/usr/bin/piforge` — handles the `pkexec` prompt and app-window browser launch |
+| `packaging/piforge` | Native GTK3+WebKit2 app installed as `/usr/bin/piforge` — starts the server via `pkexec` and shows the UI in a real app window |
 | `packaging/debian/piforge.desktop` | Application-menu entry |
 | `packaging/piforge.svg` | App icon |
 

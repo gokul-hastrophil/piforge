@@ -54,8 +54,7 @@ Section: utils
 Priority: optional
 Architecture: ${ARCH}
 Installed-Size: ${INSTALLED_SIZE_KB}
-Depends: python3, util-linux, coreutils, xz-utils, openssl, wpasupplicant, parted, jq, curl, policykit-1
-Recommends: chromium | chromium-browser | google-chrome-stable
+Depends: python3, python3-gi, gir1.2-webkit2-4.1 | gir1.2-webkit2-4.0, util-linux, coreutils, xz-utils, openssl, wpasupplicant, parted, jq, curl, policykit-1
 Maintainer: PiForge contributors <noreply@example.invalid>
 Homepage: https://github.com/
 Description: Mass SD card installer for Raspberry Pi OS
