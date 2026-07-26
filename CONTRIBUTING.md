@@ -49,13 +49,26 @@ still matters most.
 
 Every PR gets:
 1. **Automated CI** — the syntax/validation checks above, plus CodeQL.
-   Must pass before merge.
-2. **AI-assisted review** — an automated pass that comments on the diff
-   (see `.github/workflows/ai-review.yml`). It catches obvious issues
-   fast but is not a substitute for maintainer review, especially for
-   anything touching device I/O, privilege handling, or the firstrun.sh
-   template — those get read carefully by a human before merge regardless
-   of what the AI pass says.
+   Must pass before merge (enforced by the branch ruleset on `main`).
+2. **Two independent AI reviewers**, deliberately kept separate rather
+   than relying on one:
+   - **Claude** (`.github/workflows/ai-review.yml`, Anthropic's
+     `claude-code-action`) — needs an `ANTHROPIC_API_KEY` repo secret,
+     see "Maintainer setup" below.
+   - **CodeRabbit** (`.coderabbit.yaml`) — a GitHub App, no key
+     management needed. Install once at
+     https://github.com/apps/coderabbitai for this repo. Tuned in
+     `.coderabbit.yaml` with per-path instructions for the security-
+     sensitive files (device detection, `firstrun_gen.py`'s shell
+     substitution, the pkexec privilege boundary), plus shellcheck,
+     ruff, and markdownlint enabled. Re-reviews automatically on every
+     push to the PR. Chat with it inline in PR comments — no `@mention`
+     needed (`auto_reply` is on).
+
+   Neither is a substitute for maintainer review, especially for
+   anything touching device I/O, privilege handling, or the
+   `firstrun.sh` template — those get read carefully by a human before
+   merge regardless of what either AI pass says.
 3. **Maintainer review** — final pass before merge.
 
 ## Style
