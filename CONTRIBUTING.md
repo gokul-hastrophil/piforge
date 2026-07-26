@@ -95,3 +95,5 @@ This is a maintainer-only step; contributors never need this key.
 Use the issue templates — they ask for the specific details that speed up
 triage for this kind of tool (which distro, which Pi model, real or loop
 device, etc).
+
+<!-- verification note: confirms the PR + CI + ruleset + AI-review pipeline works end to end -->
