@@ -8,6 +8,41 @@ login. No setup wizard, no per-card manual typing.
 Built for anyone provisioning more than one Raspberry Pi at a time: classroom
 kits, workshops, IoT fleets, cluster builds.
 
+## Install as a system app (.deb)
+
+On Debian, Ubuntu, or Raspberry Pi OS itself, install PiForge like any other
+desktop app — the same way Raspberry Pi Imager ships its own `.deb`:
+
+```bash
+./packaging/build-deb.sh
+sudo apt install ./packaging/dist/piforge_1.0.0_all.deb
+```
+
+That installs a **PiForge** entry in your application menu. Click it and
+it's ready to use — no terminal, no manual `sudo python3 server.py`:
+
+- The app itself (`/opt/piforge`) is read-only and shared by every user on
+  the machine.
+- Each user's own settings live in their own `~/.config/piforge/` and
+  `~/rpi-images/` — never mixed with another user's, and never inside
+  `/opt/piforge`.
+- Flashing needs root (raw block-device writes), so the launcher opens a
+  native graphical password prompt (`pkexec`) the first time — no terminal
+  needed. The server then keeps running quietly in the background
+  (bound to `127.0.0.1` only) so relaunching PiForge later reuses it
+  instantly instead of prompting again.
+- It opens in its own app-style window (no address bar/tabs) if you have
+  Chromium, Chrome, or Brave installed; otherwise your default browser.
+
+Uninstall with `sudo apt remove piforge`. To rebuild after making changes,
+just rerun `./packaging/build-deb.sh` — it regenerates the package fresh
+from whatever's currently in the repo (bump the version first: edit
+`VERSION`).
+
+Prefer the manual workflow, or you're on a distro `apt` doesn't cover? See
+**Web UI** below — the packaged app and running `server.py` directly are
+the exact same code, just launched differently.
+
 ## How it works
 
 1. You start a small local web server (`server.py`, Python stdlib only — no
@@ -53,6 +88,15 @@ cp config.example.json config.json
 Edit `config.json` with your real values — see the field reference below.
 It's gitignored; your real password, Wi-Fi credentials, and SSH key never
 get committed.
+
+Running from a repo checkout, `config.json`/`profiles.json` next to
+`server.py` always take priority if present (this workflow). Running the
+installed `.deb` instead, where `/opt/piforge` ships only the `.example`
+templates, PiForge falls back to `~/.config/piforge/` — resolved against
+the actual invoking user (via `$SUDO_USER`/`$PKEXEC_UID`), not `root`, even
+though the server itself must run as root to write block devices. Same
+for the downloaded OS image cache and flash history: always under the real
+user's own `~/rpi-images/`, never `/root/rpi-images/`.
 
 ## Web UI (recommended, fastest)
 
@@ -197,6 +241,11 @@ the UI's **Save as**).
 | `config.example.json` | Template — copy to `config.json` and edit |
 | `profiles.example.json` | Sample named presets — copy to `profiles.json`, or just build them from the UI |
 | `check-requirements.sh` | Verifies all required tools are installed |
+| `VERSION` | Single source of truth for the package version |
+| `packaging/build-deb.sh` | Builds the `.deb` from the current repo contents |
+| `packaging/piforge` | Desktop launcher installed as `/usr/bin/piforge` — handles the `pkexec` prompt and app-window browser launch |
+| `packaging/debian/piforge.desktop` | Application-menu entry |
+| `packaging/piforge.svg` | App icon |
 
 ## License
 

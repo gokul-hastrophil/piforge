@@ -29,12 +29,50 @@ from firstrun_gen import sh_hash_password, wifi_psk, make_firstrun, compute_stat
 
 PORT = 8000
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
-CONFIG_EXAMPLE_PATH = os.path.join(BASE_DIR, "config.example.json")
-PROFILES_PATH = os.path.join(BASE_DIR, "profiles.json")
 DEFAULT_IMAGE_URL = "https://downloads.raspberrypi.com/raspios_oldstable_arm64_latest"
 
-IMAGES_DIR = os.path.expanduser("~/rpi-images")
+
+def real_home():
+    """The invoking user's actual home directory, even when this process
+    is running as root via sudo/pkexec (as it must be, to write block
+    devices). Without this, '~' resolves to /root and every user's image
+    cache, profiles, and history end up hidden in root's home instead of
+    their own — fine for a single developer running this from a repo
+    checkout, wrong for a packaged app meant to be installed and used by
+    anyone. Falls back to '~' for a real root login or a plain dev-mode
+    `python3 server.py` with no privilege escalation involved."""
+    uid = os.environ.get("PKEXEC_UID")
+    if uid:
+        import pwd
+        return pwd.getpwuid(int(uid)).pw_dir
+    sudo_user = os.environ.get("SUDO_USER")
+    if sudo_user:
+        import pwd
+        return pwd.getpwnam(sudo_user).pw_dir
+    return os.path.expanduser("~")
+
+
+USER_CONFIG_DIR = os.path.join(real_home(), ".config", "piforge")
+
+
+def resolve_data_path(filename):
+    """Prefer a file already sitting next to server.py — the dev-repo
+    workflow (clone + edit config.json in place), unchanged from before
+    packaging existed. Otherwise use the invoking user's own config
+    directory, which is what a real `apt install`'d copy under /opt should
+    use instead of writing into its own (root-owned) install directory."""
+    local = os.path.join(BASE_DIR, filename)
+    if os.path.exists(local):
+        return local
+    os.makedirs(USER_CONFIG_DIR, exist_ok=True)
+    return os.path.join(USER_CONFIG_DIR, filename)
+
+
+CONFIG_PATH = resolve_data_path("config.json")
+CONFIG_EXAMPLE_PATH = os.path.join(BASE_DIR, "config.example.json")
+PROFILES_PATH = resolve_data_path("profiles.json")
+
+IMAGES_DIR = os.path.join(real_home(), "rpi-images")
 IMAGE_FILE = os.path.join(IMAGES_DIR, "os-image.img.xz")   # compressed download
 RAW_IMAGE = os.path.join(IMAGES_DIR, "os-image.img")       # decompressed once
 URL_MARKER = os.path.join(IMAGES_DIR, "os-image.url")      # which URL is cached

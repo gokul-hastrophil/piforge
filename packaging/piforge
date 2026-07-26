@@ -1,0 +1,52 @@
+#!/bin/bash
+#
+# PiForge desktop launcher — installed as /usr/bin/piforge.
+#
+# Flashing needs root (raw block-device writes), so this starts server.py
+# via pkexec — a native graphical password prompt — instead of requiring
+# a terminal and `sudo`. Then opens the UI in an app-style browser window
+# (no address bar/tabs) if a suitable browser is available, else falls
+# back to the system default via xdg-open.
+#
+set -uo pipefail
+
+INSTALL_DIR="/opt/piforge"
+PORT=8000
+URL="http://127.0.0.1:${PORT}/"
+LOG="/tmp/piforge-server.log"
+
+server_up() { curl -fs -o /dev/null "$URL"; }
+
+if ! server_up; then
+    pkexec python3 "$INSTALL_DIR/server.py" >"$LOG" 2>&1 &
+    disown
+    for _ in $(seq 1 40); do
+        server_up && break
+        sleep 0.5
+    done
+    if ! server_up; then
+        echo "PiForge server didn't start — see $LOG" >&2
+        zenity --error --text "PiForge couldn't start (see $LOG)" 2>/dev/null \
+            || notify-send "PiForge" "Couldn't start — see $LOG" 2>/dev/null \
+            || true
+        exit 1
+    fi
+fi
+# Deliberately never auto-kills the server on window close: some browsers
+# reuse an existing background process and return control immediately
+# instead of blocking until the window closes, which would risk killing
+# the server (and any card mid-write) the moment this script guesses
+# wrong. It's bound to 127.0.0.1 only; relaunching PiForge later reuses
+# the same server via the server_up check above instead of starting a
+# second one. Stop it explicitly if you want to: pkill -f server.py
+
+BROWSER=""
+for b in chromium chromium-browser google-chrome google-chrome-stable brave-browser; do
+    command -v "$b" >/dev/null 2>&1 && { BROWSER="$b"; break; }
+done
+
+if [ -n "$BROWSER" ]; then
+    "$BROWSER" --app="$URL" --new-window >/dev/null 2>&1 &
+else
+    xdg-open "$URL" >/dev/null 2>&1
+fi

@@ -9,6 +9,10 @@ rpi-images/
 /tmp/flash-*.log
 *.log
 
+# .deb build output (regenerate with packaging/build-deb.sh)
+packaging/build/
+packaging/dist/
+
 # Python
 __pycache__/
 *.pyc
