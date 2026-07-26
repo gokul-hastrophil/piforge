@@ -1,0 +1,108 @@
+language: en-US
+
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  high_level_summary_placeholder: "@coderabbitai summary"
+  collapse_walkthrough: false
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    drafts: false
+    ignore_title_keywords:
+      - "WIP"
+      - "test:"
+
+  path_filters:
+    - "!packaging/build/**"
+    - "!packaging/dist/**"
+    - "!**/__pycache__/**"
+    - "!**/*.pyc"
+
+  path_instructions:
+    - path: "server.py"
+      instructions: >
+        This is the privileged server for PiForge — a tool that flashes
+        Raspberry Pi OS to SD cards and runs as root to write raw block
+        devices. Scrutinize especially:
+        (1) list_devices() and any device-filtering logic — a bug here
+        can mean a system disk or mounted filesystem becomes flashable.
+        (2) the capacity check before any dd/write — must reject a card
+        smaller than the image before touching it.
+        (3) subprocess invocations that shell out with untrusted input
+        (hostname, SSID, static IP fields) — flag any string
+        interpolation into a shell command that isn't properly quoted
+        or passed as an argv list instead of shell=True.
+        (4) the cancel/retry paths and process-group handling (killpg) —
+        a bug there can leave a card in an inconsistent state or fail to
+        stop a write in progress.
+        (5) any new import outside the Python standard library — this
+        project is deliberately stdlib-only in server.py and
+        firstrun_gen.py; flag any new dependency and ask whether it
+        belongs in packaging/build-deb.sh's Depends: line instead.
+
+    - path: "firstrun_gen.py"
+      instructions: >
+        This generates and writes an executable shell script
+        (firstrun.sh) that runs as root on first boot of a freshly
+        flashed Pi, built by substituting user-supplied config values
+        (hostname, Wi-Fi SSID/password, SSH keys, static IP) into a
+        template. This is the project's primary shell-injection surface.
+        For every new substitution, check: is the value quoted correctly
+        for its context (inside single quotes, inside a heredoc, etc.),
+        and could a value containing a single quote, backtick, or `$(`
+        break out of that context? Compare against how existing
+        substitutions in this file already handle it before approving a
+        new one.
+
+    - path: "packaging/piforge"
+      instructions: >
+        This is the native GTK3+WebKit2 desktop app that starts the
+        privileged server via pkexec and shows the UI in a real window.
+        Check: does it correctly distinguish "we started the server" vs
+        "reusing an already-running one" before deciding to kill it on
+        window close? Does the close handler actually check for an
+        in-progress flash before allowing the window (and the server
+        under it) to close? Flag any new import — this file is the one
+        place python3-gi/WebKit2 (apt packages, not pip) are expected;
+        anything else should raise a question.
+
+    - path: "packaging/**/*.sh"
+      instructions: >
+        Shell scripts here handle privileged package installation
+        (build-deb.sh, install.sh) or first-boot device configuration.
+        Check for: `set -euo pipefail` present, all variable expansions
+        quoted, no unquoted glob or word-splitting hazards, and that
+        `apt install` (not bare `dpkg -i`) is used wherever dependency
+        resolution matters — the project intentionally warns against
+        `dpkg -i` alone in its docs, so a script that reintroduces that
+        pattern should be flagged.
+
+    - path: "index.html"
+      instructions: >
+        This is the local web UI, served only to 127.0.0.1 and rendered
+        either in a normal browser or the native WebKit2 app window. It's
+        not exposed to a network, but still: flag any place user-supplied
+        text (hostname, SSID, device names) gets inserted into the DOM
+        without going through the existing `esc()` helper — that's the
+        project's one XSS guard and every dynamic string should use it.
+
+    - path: "**/*.md"
+      instructions: >
+        Documentation for an open-source project maintained by one
+        person. Prefer suggestions that keep instructions copy-pasteable
+        and accurate over stylistic nitpicks.
+
+  tools:
+    shellcheck:
+      enabled: true
+    ruff:
+      enabled: true
+    markdownlint:
+      enabled: true
+    github-checks:
+      enabled: true
+
+chat:
+  auto_reply: true
