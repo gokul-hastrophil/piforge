@@ -22,13 +22,31 @@ permissions:
 jobs:
   claude-review:
     runs-on: ubuntu-latest
-    if: ${{ secrets.ANTHROPIC_API_KEY != '' }}
     steps:
+      # `secrets` isn't allowed in `if:` at job or step level at all — the
+      # only place it can be read is a step's `env`/`with`/`run`. So the
+      # skip-cleanly-without-the-key behavior has to go through an actual
+      # step that checks it and records a boolean *output*, which `if:`
+      # further down CAN reference.
+      - name: Check for ANTHROPIC_API_KEY
+        id: key_check
+        env:
+          KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -n "$KEY" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::ANTHROPIC_API_KEY not set — skipping AI review. See CONTRIBUTING.md 'Maintainer setup'."
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.key_check.outputs.present == 'true'
         with:
           fetch-depth: 1
 
       - uses: anthropics/claude-code-action@v1
+        if: steps.key_check.outputs.present == 'true'
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           track_progress: "true"
