@@ -1,0 +1,49 @@
+name: Release
+
+# Tag a version (vX.Y.Z, matching the VERSION file) and this builds the
+# .deb and attaches it to a GitHub Release automatically. Nothing to run
+# by hand beyond the tag push:
+#
+#   echo "1.1.0" > VERSION && git commit -am "Bump to 1.1.0"
+#   git tag v1.1.0 && git push origin main v1.1.0
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify tag matches VERSION file
+        run: |
+          set -e
+          TAG="${GITHUB_REF_NAME#v}"
+          FILE_VERSION="$(cat VERSION)"
+          if [ "$TAG" != "$FILE_VERSION" ]; then
+            echo "::error::Tag v${TAG} does not match VERSION file (${FILE_VERSION})"
+            exit 1
+          fi
+          echo "OK: tag matches VERSION file ($FILE_VERSION)"
+
+      - name: Build .deb
+        run: ./packaging/build-deb.sh
+
+      - name: Verify package has no secrets
+        run: |
+          set -e
+          DEB=$(ls packaging/dist/*.deb)
+          dpkg-deb --contents "$DEB" | grep -E "config\.json$|profiles\.json$" && \
+            { echo "::error::secrets present in built package — aborting release"; exit 1; } || true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: packaging/dist/*.deb
+          generate_release_notes: true

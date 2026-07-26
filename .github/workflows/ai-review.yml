@@ -1,0 +1,58 @@
+name: AI review
+
+# Automated first-pass review on every PR, using Anthropic's official
+# claude-code-action. Requires a repo secret named ANTHROPIC_API_KEY —
+# add it yourself under Settings → Secrets and variables → Actions.
+# This is NOT a substitute for maintainer review (see CONTRIBUTING.md
+# "Review process") — it's a fast first pass that catches obvious issues
+# before a human looks at anything touching device I/O or privilege
+# handling.
+#
+# If ANTHROPIC_API_KEY isn't set yet, this job skips cleanly instead of
+# failing, so CI/CodeQL still gate merges even before the key is added.
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  claude-review:
+    runs-on: ubuntu-latest
+    if: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          track_progress: "true"
+          include_fix_links: "true"
+          classify_inline_comments: "true"
+          prompt: |
+            Review this pull request to the PiForge repository — a Linux
+            tool that flashes Raspberry Pi OS to SD cards in parallel and
+            runs as root to write raw block devices.
+
+            Focus especially on:
+            - Anything touching device selection/detection (server.py's
+              list_devices, capacity checks) — a bug there can mean
+              writing to the wrong disk or a system disk.
+            - firstrun_gen.py's template substitution — shell injection
+              risk if config values (hostname, SSID, static IP, SSH keys)
+              aren't handled safely.
+            - The pkexec/sudo privilege boundary in packaging/piforge and
+              server.py.
+            - Any new runtime dependency — this project is deliberately
+              apt-only with zero pip installs; flag any pip/npm-style
+              dependency addition.
+            - Shell scripts: quoting, `set -euo pipefail`, and correctness
+              of any subprocess invocation from Python.
+
+            Give constructive, specific feedback. If nothing concerning
+            stands out, say so briefly rather than inventing nitpicks.

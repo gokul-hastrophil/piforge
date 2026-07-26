@@ -1,0 +1,62 @@
+name: Bug report
+description: Something didn't work as expected
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect instead?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: How is PiForge installed?
+      options:
+        - .deb package (apt install)
+        - From source (git clone + python3 server.py)
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Host OS and version
+      placeholder: e.g. Ubuntu 24.04, Debian 12, Raspberry Pi OS Bookworm
+    validations:
+      required: true
+
+  - type: input
+    id: pi-model
+    attributes:
+      label: Target Raspberry Pi model (if relevant)
+      placeholder: e.g. Pi 4B, Pi 5, Zero 2 W
+
+  - type: dropdown
+    id: device-kind
+    attributes:
+      label: Real SD card, or a loop/test device?
+      description: Matters a lot for triaging device-detection or flashing bugs.
+      options:
+        - Real SD card via USB reader
+        - Loop device / test file
+        - Not applicable
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: >
+        `/tmp/flash-*.log` for a specific card, `/tmp/piforge-server.log`
+        for server startup issues. Redact anything sensitive (Wi-Fi
+        passwords, keys) before pasting.
+      render: shell
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true

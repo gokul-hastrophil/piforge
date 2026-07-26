@@ -1,5 +1,10 @@
 # PiForge
 
+[![CI](https://github.com/gokul-hastrophil/piforge/actions/workflows/ci.yml/badge.svg)](https://github.com/gokul-hastrophil/piforge/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/gokul-hastrophil/piforge/actions/workflows/codeql.yml/badge.svg)](https://github.com/gokul-hastrophil/piforge/actions/workflows/codeql.yml)
+[![Latest release](https://img.shields.io/github/v/release/gokul-hastrophil/piforge)](https://github.com/gokul-hastrophil/piforge/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Flash Raspberry Pi OS to many SD cards at once — in parallel, with hostname,
 user, password, Wi-Fi, country, timezone, keyboard layout, SSH keys and even
 per-card static IPs pre-configured, so every card boots straight to a working
@@ -7,6 +12,22 @@ login. No setup wizard, no per-card manual typing.
 
 Built for anyone provisioning more than one Raspberry Pi at a time: classroom
 kits, workshops, IoT fleets, cluster builds.
+
+## Contents
+
+- [Install as a system app (.deb)](#install-as-a-system-app-deb)
+- [How it works](#how-it-works)
+- [Requirements](#requirements)
+- [Setup](#setup)
+- [Web UI (recommended, fastest)](#web-ui-recommended-fastest)
+- [CLI only (no browser, no server)](#cli-only-no-browser-no-server)
+- [Injecting config into an already-flashed card](#injecting-config-into-an-already-flashed-card)
+- [Config field reference](#config-field-reference)
+- [Safety](#safety)
+- [Project layout](#project-layout)
+- [Contributing](#contributing)
+- [Security](#security)
+- [License](#license)
 
 ## Install as a system app (.deb)
 
@@ -265,6 +286,24 @@ the UI's **Save as**).
 | `packaging/piforge` | Native GTK3+WebKit2 app installed as `/usr/bin/piforge` — starts the server via `pkexec` and shows the UI in a real app window |
 | `packaging/debian/piforge.desktop` | Application-menu entry |
 | `packaging/piforge.svg` | App icon |
+
+## Contributing
+
+Bug reports, feature requests, and PRs are welcome — see
+[CONTRIBUTING.md](CONTRIBUTING.md) for dev setup, the testing checklist
+this project actually follows, and commit/PR conventions. Every PR runs
+automated CI (syntax checks + CodeQL) and an AI-assisted review before
+merge; see [CONTRIBUTING.md](CONTRIBUTING.md#review-process) for what that
+covers and what it doesn't replace.
+
+All contributors and participants are expected to follow the
+[Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Security
+
+This tool runs as root and writes raw block devices — see
+[SECURITY.md](SECURITY.md) for the threat model and how to report a
+vulnerability privately rather than in a public issue.
 
 ## License
 
