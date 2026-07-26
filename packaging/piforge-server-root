@@ -10,4 +10,8 @@
 # branded prompt for literally any use of the system Python interpreter
 # as root). This one-line wrapper gives pkexec a single, unambiguous
 # path to match instead.
-exec python3 /opt/piforge/server.py
+# Absolute path, not "python3" via $PATH: this runs as root, and a
+# privileged entry point shouldn't trust PATH resolution even though
+# pkexec already sanitizes it — belt and suspenders (flagged by
+# CodeRabbit's automated review).
+exec /usr/bin/python3 /opt/piforge/server.py

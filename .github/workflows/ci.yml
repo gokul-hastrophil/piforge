@@ -29,10 +29,22 @@ jobs:
       - name: Shell scripts parse (bash -n)
         run: |
           set -e
-          for f in *.sh packaging/build-deb.sh packaging/install.sh packaging/piforge-server-root; do
+          for f in *.sh packaging/build-deb.sh packaging/install.sh; do
             [ -f "$f" ] || continue
             echo "-- $f"
             bash -n "$f"
+          done
+
+      - name: POSIX sh scripts parse (sh -n)
+        run: |
+          set -e
+          # piforge-server-root declares #!/bin/sh, not bash — validate it
+          # with the shell it actually declares (flagged by CodeRabbit's
+          # automated review; bash -n is a superset parser and can accept
+          # things a real POSIX sh would reject).
+          for f in packaging/piforge-server-root; do
+            echo "-- $f"
+            sh -n "$f"
           done
 
       - name: Python files parse (ast.parse)
@@ -78,14 +90,25 @@ jobs:
       - name: .desktop file validates
         run: desktop-file-validate packaging/debian/piforge.desktop
 
-      - name: polkit .policy file is well-formed XML
+      - name: polkit .policy file matches its declared contract exactly
         run: |
           python3 -c "
           import xml.dom.minidom as m
+          EXPECTED_ID = 'io.github.gokul-hastrophil.piforge.run-server'
+          EXPECTED_EXEC_PATH = '/opt/piforge/piforge-server-root'
+
           d = m.parse('packaging/debian/io.github.gokul-hastrophil.piforge.policy')
-          action_id = d.getElementsByTagName('action')[0].getAttribute('id')
-          assert action_id, 'action element missing id attribute'
-          print('policy OK, action id:', action_id)
+          action = d.getElementsByTagName('action')[0]
+          action_id = action.getAttribute('id')
+          assert action_id == EXPECTED_ID, f'action id {action_id!r} != {EXPECTED_ID!r}'
+
+          exec_path = None
+          for a in action.getElementsByTagName('annotate'):
+              if a.getAttribute('key') == 'org.freedesktop.policykit.exec.path':
+                  exec_path = a.firstChild.nodeValue
+          assert exec_path == EXPECTED_EXEC_PATH, f'exec.path {exec_path!r} != {EXPECTED_EXEC_PATH!r}'
+
+          print('policy OK — action id and exec.path match exactly:', action_id, exec_path)
           "
 
       - name: packaging/piforge (native app) parses
