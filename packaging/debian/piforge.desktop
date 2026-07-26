@@ -6,6 +6,7 @@ Comment=Flash Raspberry Pi OS to many SD cards in parallel, fully pre-configured
 Exec=piforge
 Icon=piforge
 Terminal=false
+StartupWMClass=piforge
 Categories=System;
 StartupNotify=true
 Keywords=raspberry;pi;sd;card;flash;imager;install;
