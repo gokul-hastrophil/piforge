@@ -1,0 +1,62 @@
+#!/bin/bash
+#
+# Build an .rpm package for PiForge (Fedora/RHEL-family; see the spec file
+# for openSUSE naming caveats).
+#
+# Usage:  ./packaging/build-rpm.sh
+# Output: packaging/rpm-dist/piforge-<version>-1.<dist>.noarch.rpm
+#
+set -euo pipefail
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "${SELF_DIR}/.." && pwd)"
+
+command -v rpmbuild >/dev/null || {
+    echo "ERROR: rpmbuild not found."
+    echo "  Fedora/RHEL: sudo dnf install rpm-build"
+    echo "  Debian/Ubuntu (cross-building, as this project's own CI does): sudo apt install rpm"
+    exit 1
+}
+
+VERSION="$(cat "${REPO_DIR}/VERSION")"
+PKG="piforge"
+
+RPMBUILD_ROOT="${SELF_DIR}/rpm-build"
+DIST_DIR="${SELF_DIR}/rpm-dist"
+SRC_STAGE="${RPMBUILD_ROOT}/${PKG}-${VERSION}"
+
+rm -rf "$RPMBUILD_ROOT" "$DIST_DIR"
+mkdir -p "$RPMBUILD_ROOT"/{BUILD,RPMS,SOURCES,SPECS,SRPMS} "$SRC_STAGE" "$DIST_DIR"
+
+# --- source tarball: same app files as build-deb.sh, plus the packaging/
+#     assets the spec's %install step reaches into directly (packaging/piforge,
+#     packaging/piforge-server-root, packaging/debian/*, packaging/piforge.svg) ---
+cp -p "${REPO_DIR}"/server.py \
+      "${REPO_DIR}"/index.html \
+      "${REPO_DIR}"/firstrun_gen.py \
+      "${REPO_DIR}"/config.example.json \
+      "${REPO_DIR}"/profiles.example.json \
+      "${REPO_DIR}"/flash-all.sh \
+      "${REPO_DIR}"/inject-config.sh \
+      "${REPO_DIR}"/check-requirements.sh \
+      "${REPO_DIR}"/README.md \
+      "${REPO_DIR}"/LICENSE \
+      "$SRC_STAGE/"
+mkdir -p "$SRC_STAGE/packaging/debian"
+cp -p "${SELF_DIR}/piforge" "${SELF_DIR}/piforge-server-root" "${SELF_DIR}/piforge.svg" "$SRC_STAGE/packaging/"
+cp -p "${SELF_DIR}/debian/piforge.desktop" \
+      "${SELF_DIR}/debian/io.github.gokul-hastrophil.piforge.policy" \
+      "$SRC_STAGE/packaging/debian/"
+
+tar -C "$RPMBUILD_ROOT" -czf "$RPMBUILD_ROOT/SOURCES/${PKG}-${VERSION}.tar.gz" "${PKG}-${VERSION}"
+
+rpmbuild --define "_topdir ${RPMBUILD_ROOT}" \
+         --define "piforge_version ${VERSION}" \
+         -bb "${SELF_DIR}/rpm/piforge.spec"
+
+find "$RPMBUILD_ROOT/RPMS" -name '*.rpm' -exec cp -p {} "$DIST_DIR/" \;
+
+echo
+echo "Built: $(ls "$DIST_DIR"/*.rpm)"
+echo "Install with:   sudo dnf install $(ls "$DIST_DIR"/*.rpm)"
+echo "Remove with:    sudo dnf remove piforge"

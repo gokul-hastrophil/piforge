@@ -29,11 +29,20 @@ jobs:
       - name: Shell scripts parse (bash -n)
         run: |
           set -e
-          for f in *.sh packaging/build-deb.sh packaging/install.sh; do
+          for f in *.sh packaging/build-deb.sh packaging/install.sh packaging/build-rpm.sh; do
             [ -f "$f" ] || continue
             echo "-- $f"
             bash -n "$f"
           done
+
+      - name: PKGBUILD parses (it's valid bash)
+        run: |
+          set -e
+          # makepkg itself can't run here (deeply tied to pacman), but
+          # PKGBUILD is plain bash — bash -n at least catches syntax
+          # errors on every push instead of only when someone runs
+          # makepkg by hand.
+          bash -n packaging/arch/PKGBUILD
 
       - name: POSIX sh scripts parse (sh -n)
         run: |
@@ -147,4 +156,30 @@ jobs:
         with:
           name: piforge-deb
           path: packaging/dist/*.deb
+          retention-days: 14
+
+  build-rpm:
+    name: Build .rpm package
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install rpmbuild
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends rpm
+      - name: Build package
+        run: ./packaging/build-rpm.sh
+      - name: Inspect package (no secrets, sane contents)
+        run: |
+          set -e
+          RPM=$(ls packaging/rpm-dist/*.rpm)
+          rpm -qip "$RPM"
+          rpm -qlp "$RPM" | grep -E "config\.json$|profiles\.json$" && \
+            { echo "::error::secrets present in built package"; exit 1; } || true
+          echo "OK: package built cleanly, no secrets"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: piforge-rpm
+          path: packaging/rpm-dist/*.rpm
           retention-days: 14

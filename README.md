@@ -15,7 +15,7 @@ kits, workshops, IoT fleets, cluster builds.
 
 ## Contents
 
-- [Install as a system app (.deb)](#install-as-a-system-app-deb)
+- [Install as a system app](#install-as-a-system-app)
 - [How it works](#how-it-works)
 - [Requirements](#requirements)
 - [Setup](#setup)
@@ -29,10 +29,12 @@ kits, workshops, IoT fleets, cluster builds.
 - [Security](#security)
 - [License](#license)
 
-## Install as a system app (.deb)
+## Install as a system app
 
-On Debian, Ubuntu, or Raspberry Pi OS itself, install PiForge like any other
-desktop app — the same way Raspberry Pi Imager ships its own `.deb`:
+### Debian, Ubuntu, Raspberry Pi OS (.deb)
+
+Install PiForge like any other desktop app — the same way Raspberry Pi
+Imager ships its own `.deb`:
 
 ```bash
 ./packaging/install.sh
@@ -78,8 +80,38 @@ just rerun `./packaging/build-deb.sh` — it regenerates the package fresh
 from whatever's currently in the repo (bump the version first: edit
 `VERSION`).
 
-Prefer the manual workflow, or you're on a distro `apt` doesn't cover? See
-**Web UI** below — the packaged app and running `server.py` directly are
+### Fedora, RHEL-family (.rpm)
+
+```bash
+./packaging/build-rpm.sh
+sudo dnf install packaging/rpm-dist/piforge-*.noarch.rpm
+```
+
+Same app, same behavior as the `.deb` above — just packaged for `dnf`.
+Package names are verified against Fedora's live repositories; if you're
+adapting this for openSUSE, the WebKitGTK/PyGObject package names differ
+(see the comments in `packaging/rpm/piforge.spec`) — the app code itself
+needs no changes, only the spec's `Requires:`.
+
+Uninstall with `sudo dnf remove piforge`.
+
+### Arch Linux (PKGBUILD)
+
+```bash
+cd packaging/arch
+makepkg -si
+```
+
+This follows normal AUR convention — `makepkg` downloads a specific
+tagged release tarball and verifies it against a pinned checksum, unlike
+the `.deb`/`.rpm` scripts above which build from your current checkout.
+That means `packaging/arch/PKGBUILD`'s `pkgver`/`sha256sums` only track
+tagged releases, not every commit — routine PKGBUILD maintenance, not a
+bug. Uninstall with `sudo pacman -R piforge`.
+
+Prefer the manual workflow, or you're on a distro none of the above
+cover? See **Web UI** below — the packaged app and running `server.py`
+directly are
 the exact same code, just launched differently.
 
 ## How it works
@@ -288,6 +320,9 @@ the UI's **Save as**).
 | `packaging/piforge.svg` | App icon |
 | `packaging/piforge-server-root` | One-line root-helper wrapper invoked via `pkexec`, matched to the polkit action below so the auth prompt is branded instead of generic |
 | `packaging/debian/io.github.gokul-hastrophil.piforge.policy` | polkit action definition — gives the `pkexec` password prompt a proper "PiForge needs root to flash SD cards" message and icon |
+| `packaging/rpm/piforge.spec` | RPM spec (Fedora/RHEL-family) |
+| `packaging/build-rpm.sh` | Builds the `.rpm` from the current repo contents |
+| `packaging/arch/PKGBUILD` | Arch Linux package definition (`makepkg`) |
 
 ## Contributing
 
