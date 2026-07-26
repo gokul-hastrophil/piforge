@@ -1,0 +1,13 @@
+#!/bin/sh
+#
+# Dedicated root-helper wrapper, invoked only via the polkit action
+# io.github.gokul-hastrophil.piforge.run-server (see
+# packaging/debian/io.github.gokul-hastrophil.piforge.policy).
+#
+# polkit's pkexec matches a nice, branded auth prompt to a *specific*
+# executable path via the action's org.freedesktop.policykit.exec.path
+# annotation — it can't sensibly point at "python3" (that would grant a
+# branded prompt for literally any use of the system Python interpreter
+# as root). This one-line wrapper gives pkexec a single, unambiguous
+# path to match instead.
+exec python3 /opt/piforge/server.py

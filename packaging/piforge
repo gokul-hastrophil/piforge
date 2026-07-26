@@ -60,7 +60,12 @@ def start_server():
     if server_up():
         return False
     with open(LOG_PATH, "w") as log:
-        subprocess.Popen(["pkexec", "python3", f"{INSTALL_DIR}/server.py"],
+        # Invoke the dedicated root-helper wrapper (not "pkexec python3
+        # server.py" directly) so polkit matches this to the
+        # io.github.gokul-hastrophil.piforge.run-server action and shows
+        # a branded "PiForge needs root to flash SD cards" prompt instead
+        # of a generic "run /usr/bin/python3 ..." one.
+        subprocess.Popen(["pkexec", f"{INSTALL_DIR}/piforge-server-root"],
                          stdout=log, stderr=subprocess.STDOUT)
     for _ in range(40):
         if server_up():

@@ -29,7 +29,7 @@ jobs:
       - name: Shell scripts parse (bash -n)
         run: |
           set -e
-          for f in *.sh packaging/build-deb.sh packaging/install.sh; do
+          for f in *.sh packaging/build-deb.sh packaging/install.sh packaging/piforge-server-root; do
             [ -f "$f" ] || continue
             echo "-- $f"
             bash -n "$f"
@@ -77,6 +77,16 @@ jobs:
 
       - name: .desktop file validates
         run: desktop-file-validate packaging/debian/piforge.desktop
+
+      - name: polkit .policy file is well-formed XML
+        run: |
+          python3 -c "
+          import xml.dom.minidom as m
+          d = m.parse('packaging/debian/io.github.gokul-hastrophil.piforge.policy')
+          action_id = d.getElementsByTagName('action')[0].getAttribute('id')
+          assert action_id, 'action element missing id attribute'
+          print('policy OK, action id:', action_id)
+          "
 
       - name: packaging/piforge (native app) parses
         run: python3 -c "import ast; ast.parse(open('packaging/piforge').read()); print('packaging/piforge OK')"

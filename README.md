@@ -286,6 +286,8 @@ the UI's **Save as**).
 | `packaging/piforge` | Native GTK3+WebKit2 app installed as `/usr/bin/piforge` — starts the server via `pkexec` and shows the UI in a real app window |
 | `packaging/debian/piforge.desktop` | Application-menu entry |
 | `packaging/piforge.svg` | App icon |
+| `packaging/piforge-server-root` | One-line root-helper wrapper invoked via `pkexec`, matched to the polkit action below so the auth prompt is branded instead of generic |
+| `packaging/debian/io.github.gokul-hastrophil.piforge.policy` | polkit action definition — gives the `pkexec` password prompt a proper "PiForge needs root to flash SD cards" message and icon |
 
 ## Contributing
 
