@@ -8,7 +8,7 @@ page cache (dd), then injects Imager-style firstrun.sh customization
 (hostname, user, password, SSH keys, Wi-Fi, country, timezone, keyboard,
 static IP). Also serves named config profiles and a flash history log.
 
-Run:  sudo python3 server.py       then open http://127.0.0.1:8000
+Run:  sudo python3 server.py       then open http://127.0.0.1:47823
 """
 
 import json
@@ -27,7 +27,7 @@ import csv
 
 from firstrun_gen import sh_hash_password, wifi_psk, make_firstrun, compute_static_ip
 
-PORT = 8000
+PORT = 47823
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_IMAGE_URL = "https://downloads.raspberrypi.com/raspios_oldstable_arm64_latest"
 

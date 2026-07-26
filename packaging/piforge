@@ -11,7 +11,7 @@
 set -uo pipefail
 
 INSTALL_DIR="/opt/piforge"
-PORT=8000
+PORT=47823
 URL="http://127.0.0.1:${PORT}/"
 LOG="/tmp/piforge-server.log"
 

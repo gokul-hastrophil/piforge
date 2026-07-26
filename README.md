@@ -47,7 +47,7 @@ the exact same code, just launched differently.
 
 1. You start a small local web server (`server.py`, Python stdlib only — no
    pip installs).
-2. Open `http://127.0.0.1:8000` in a browser. It auto-detects every
+2. Open `http://127.0.0.1:47823` in a browser. It auto-detects every
    removable card in your USB reader(s) and lists them, flagging any that
    already contain data.
 3. Fill in the card-setup form (or load a saved profile), select the cards,
@@ -104,7 +104,7 @@ user's own `~/rpi-images/`, never `/root/rpi-images/`.
 sudo python3 server.py
 ```
 
-Open `http://127.0.0.1:8000`. Insert SD cards — they're detected
+Open `http://127.0.0.1:47823`. Insert SD cards — they're detected
 automatically and pre-selected. Adjust the form if needed, then **START**.
 
 Root is required only for actually writing to block devices; device
