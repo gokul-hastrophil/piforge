@@ -26,8 +26,9 @@ try:
 except ValueError:
     gi.require_version("WebKit2", "4.0")
     from gi.repository import WebKit2
-from gi.repository import Gtk, Gdk, GLib
+from gi.repository import Gtk, Gdk, GLib, Gio
 
+APP_ID = "io.github.gokul-hastrophil.piforge"
 INSTALL_DIR = "/opt/piforge"
 ICON_PATH = "/usr/share/icons/hicolor/scalable/apps/piforge.svg"
 PORT = 47823
@@ -84,9 +85,9 @@ def show_error(message):
     dialog.destroy()
 
 
-class PiForgeWindow(Gtk.Window):
-    def __init__(self, we_started_server):
-        super().__init__(title="PiForge")
+class PiForgeWindow(Gtk.ApplicationWindow):
+    def __init__(self, app, we_started_server):
+        super().__init__(application=app, title="PiForge")
         self.we_started_server = we_started_server
         self.set_default_size(1320, 900)
         try:
@@ -121,15 +122,34 @@ class PiForgeWindow(Gtk.Window):
 
         if self.we_started_server:
             subprocess.run(["pkill", "-f", f"{INSTALL_DIR}/server.py"])
-        Gtk.main_quit()
         return False
 
 
+class PiForgeApp(Gtk.Application):
+    """Single-instance GTK application. Launching `piforge` again while a
+    window is already open re-presents that window instead of starting a
+    second process — previously each launch was an independent process
+    with its own we_started_server flag, so whichever one happened to
+    close first could kill the server out from under any other still-open
+    window (see issue #3). With a single shared process there's only ever
+    one we_started_server flag and one server lifecycle to reason about."""
+
+    def __init__(self):
+        super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.FLAGS_NONE)
+        self.window = None
+
+    def do_activate(self):
+        if self.window is None:
+            we_started_server = start_server()
+            self.window = PiForgeWindow(self, we_started_server)
+            self.window.show_all()
+        else:
+            self.window.present()
+
+
 def main():
-    we_started_server = start_server()
-    win = PiForgeWindow(we_started_server)
-    win.show_all()
-    Gtk.main()
+    app = PiForgeApp()
+    sys.exit(app.run(sys.argv))
 
 
 if __name__ == "__main__":
