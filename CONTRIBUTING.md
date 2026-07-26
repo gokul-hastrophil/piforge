@@ -109,3 +109,4 @@ Use the issue templates — they ask for the specific details that speed up
 triage for this kind of tool (which distro, which Pi model, real or loop
 device, etc).
 <!-- reviewer verification 1785058167 -->
+<!-- retrigger 1785058447 -->
