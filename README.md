@@ -14,12 +14,26 @@ On Debian, Ubuntu, or Raspberry Pi OS itself, install PiForge like any other
 desktop app — the same way Raspberry Pi Imager ships its own `.deb`:
 
 ```bash
-./packaging/build-deb.sh
-sudo apt install ./packaging/dist/piforge_1.0.0_all.deb
+./packaging/install.sh
 ```
 
-That installs a **PiForge** entry in your application menu. Click it and
-it's ready to use — no terminal, no manual `sudo python3 server.py`:
+That builds the package (if not already built) and installs it through
+`apt`, which resolves and installs every dependency automatically —
+`python3-gi`, `webkit2gtk`, `jq`, `wpasupplicant`, all of it, no separate
+steps. **Important:** always install through `apt`, not `dpkg -i` directly.
+`dpkg -i` does *not* auto-install missing dependencies — it just records
+them as unmet and leaves the package half-configured, which is the classic
+reason a manually-installed `.deb` "doesn't install its dependencies".
+If you'd rather run the two steps yourself instead of the convenience
+script, that's the same thing under the hood:
+
+```bash
+./packaging/build-deb.sh
+sudo apt install ./packaging/dist/piforge_1.0.0_all.deb   # apt, not dpkg -i
+```
+
+Either way, you get a **PiForge** entry in your application menu. Click it
+and it's ready to use — no terminal, no manual `sudo python3 server.py`:
 
 - The app itself (`/opt/piforge`) is read-only and shared by every user on
   the machine.
@@ -247,6 +261,7 @@ the UI's **Save as**).
 | `check-requirements.sh` | Verifies all required tools are installed |
 | `VERSION` | Single source of truth for the package version |
 | `packaging/build-deb.sh` | Builds the `.deb` from the current repo contents |
+| `packaging/install.sh` | Builds (if needed) and installs via `apt`, so dependencies resolve automatically |
 | `packaging/piforge` | Native GTK3+WebKit2 app installed as `/usr/bin/piforge` — starts the server via `pkexec` and shows the UI in a real app window |
 | `packaging/debian/piforge.desktop` | Application-menu entry |
 | `packaging/piforge.svg` | App icon |

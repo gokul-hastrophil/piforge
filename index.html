@@ -23,34 +23,43 @@
     --accent: #C51A4A;
   }
   * { box-sizing: border-box; }
-  html, body { height: 100%; }
+  html, body { height: 100%; overflow: hidden; }
   body {
     margin: 0; background: var(--bg); color: var(--ink);
     font-family: system-ui, "Segoe UI", Roboto, sans-serif;
     display: flex; flex-direction: column;
   }
   header {
+    flex: none;
     display: flex; align-items: center; justify-content: space-between;
     padding: 1rem 1.5rem; background: var(--red); color: #fff;
   }
   header .brand { display: flex; align-items: center; gap: 0.6rem; font-size: 1.15rem; font-weight: 700; letter-spacing: 0.01em; }
   header .brand span { color: rgba(255,255,255,0.78); font-weight: 400; font-size: 0.95rem; }
   header .logo { flex: none; display: block; }
+  header .right { display: flex; align-items: center; gap: 1rem; }
   .counter { font-variant-numeric: tabular-nums; color: rgba(255,255,255,0.85); font-size: 0.95rem; }
   .counter b { color: #fff; font-size: 1.2rem; }
+  .icon-btn {
+    background: rgba(255,255,255,0.16); border: none; color: #fff;
+    border-radius: 8px; width: 2.1rem; height: 2.1rem; font-size: 1.1rem;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+  }
+  .icon-btn:hover { background: rgba(255,255,255,0.3); }
 
   .offline-banner, .root-banner {
-    display: none; text-align: center; padding: 0.5rem; font-weight: 650;
+    flex: none; display: none; text-align: center; padding: 0.5rem; font-weight: 650;
   }
   .offline-banner { background: var(--bad); color: #fff; }
   .root-banner { background: var(--warn); color: #1B1B1B; }
 
   main {
-    flex: 1; display: grid; grid-template-columns: 400px 1fr;
-    gap: 1.4rem; padding: 1.4rem 1.5rem; align-items: start;
+    flex: 1; min-height: 0; display: grid; grid-template-columns: 400px 1fr;
+    gap: 1.4rem; padding: 1.4rem 1.5rem;
     width: 100%; max-width: 1320px; margin: 0 auto;
   }
   @media (max-width: 920px) { main { grid-template-columns: 1fr; } }
+  .col { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
 
   .panel {
     background: var(--panel); border: 1px solid var(--line);
@@ -204,9 +213,31 @@
   table.history td.status-error { color: var(--bad); font-weight: 650; }
 
   footer {
+    flex: none;
     color: var(--muted); font-size: 0.8rem; text-align: center;
-    padding: 0.8rem 1.5rem 1.2rem;
+    padding: 0.5rem 1.5rem 0.6rem;
   }
+
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.35);
+    display: flex; align-items: center; justify-content: center; z-index: 100;
+  }
+  .modal {
+    background: var(--panel); border-radius: 12px; width: min(720px, 92vw);
+    max-height: 80vh; display: flex; flex-direction: column;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.25);
+  }
+  .modal-head {
+    flex: none; display: flex; align-items: center; justify-content: space-between;
+    padding: 1rem 1.2rem; border-bottom: 1px solid var(--line);
+  }
+  .modal-head h3 { margin: 0; font-size: 1rem; }
+  .modal-close {
+    background: none; border: none; font-size: 1.2rem; color: var(--muted);
+    cursor: pointer; line-height: 1; padding: 0.2rem 0.4rem;
+  }
+  .modal-close:hover { color: var(--ink); }
+  .modal-body { padding: 1rem 1.2rem; overflow-y: auto; min-height: 0; }
 </style>
 </head>
 <body>
@@ -225,11 +256,14 @@
     </svg>
     PiForge <span>· mass SD card installer</span>
   </div>
-  <div class="counter">Cards done: <b id="count">0</b></div>
+  <div class="right">
+    <button type="button" class="icon-btn" id="btn-history" title="Flash history">🕘</button>
+    <div class="counter">Cards done: <b id="count">0</b></div>
+  </div>
 </header>
 
 <main>
-  <div>
+  <div class="col">
     <section class="panel">
       <h2>Profile</h2>
       <div class="row">
@@ -347,10 +381,10 @@
     </section>
   </div>
 
-  <div>
-    <section class="panel">
-      <h2>Detected SD cards <span class="scanstate" id="scanstate"></span></h2>
-      <div class="devgrid" id="devgrid">
+  <div class="col">
+    <section class="panel" style="flex:1; display:flex; flex-direction:column; min-height:0;">
+      <h2 style="flex:none">Detected SD cards <span class="scanstate" id="scanstate"></span></h2>
+      <div class="devgrid" id="devgrid" style="flex:1; overflow-y:auto; min-height:0;">
         <div class="empty">
           <div class="bigicon pulse">🗂️</div>
           <h3>Insert SD cards</h3>
@@ -358,20 +392,23 @@
         </div>
       </div>
     </section>
-
-    <section class="panel">
-      <details id="history_group">
-        <summary style="cursor:pointer; font-size:0.8rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--muted); font-weight:650;">🕘 History</summary>
-        <div id="history_body">
-          <p class="hint">Opens on click — shows the last 50 cards flashed.</p>
-        </div>
-      </details>
-    </section>
   </div>
 </main>
 
 <footer>Auto-refresh every 2 s · only removable, non-system drives are shown ·
 all selected cards are written in parallel</footer>
+
+<div class="modal-overlay" id="history_modal" style="display:none">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>🕘 Flash history</h3>
+      <button type="button" class="modal-close" id="btn-history-close">✕</button>
+    </div>
+    <div class="modal-body" id="history_body">
+      <p class="hint">Last 50 cards flashed.</p>
+    </div>
+  </div>
+</div>
 
 <script>
   const $ = id => document.getElementById(id);
@@ -682,26 +719,35 @@ all selected cards are written in parallel</footer>
     await refreshProfiles();
   });
 
-  // ---- History ----
-  let historyLoaded = false;
-  $("history_group").addEventListener("toggle", async () => {
-    if (!$("history_group").open) return;
-    const { rows } = await (await fetch("/api/history")).json();
-    const body = $("history_body");
-    if (!rows.length) {
-      body.innerHTML = `<p class="hint">No cards flashed yet.</p>`;
-      return;
-    }
-    body.innerHTML = `<table class="history"><thead><tr>
-      <th>Time</th><th>Device</th><th>Hostname</th><th>Status</th><th>Duration</th>
-      </tr></thead><tbody>${rows.map(r => `<tr>
-        <td>${esc(r.timestamp || "")}</td>
-        <td>${esc(r.device || "")}</td>
-        <td>${esc(r.hostname || "")}</td>
-        <td class="status-${esc(r.status || "")}">${esc((r.status || "").toUpperCase())}</td>
-        <td>${esc(r.duration_s || "")}s</td>
-      </tr>`).join("")}</tbody></table>`;
-    historyLoaded = true;
+  // ---- History (on-demand modal, not part of the main page) ----
+  function openHistory() {
+    $("history_modal").style.display = "flex";
+    $("history_body").innerHTML = `<p class="hint">Loading…</p>`;
+    fetch("/api/history").then(r => r.json()).then(({ rows }) => {
+      const body = $("history_body");
+      if (!rows.length) {
+        body.innerHTML = `<p class="hint">No cards flashed yet.</p>`;
+        return;
+      }
+      body.innerHTML = `<table class="history"><thead><tr>
+        <th>Time</th><th>Device</th><th>Hostname</th><th>Status</th><th>Duration</th>
+        </tr></thead><tbody>${rows.map(r => `<tr>
+          <td>${esc(r.timestamp || "")}</td>
+          <td>${esc(r.device || "")}</td>
+          <td>${esc(r.hostname || "")}</td>
+          <td class="status-${esc(r.status || "")}">${esc((r.status || "").toUpperCase())}</td>
+          <td>${esc(r.duration_s || "")}s</td>
+        </tr>`).join("")}</tbody></table>`;
+    });
+  }
+
+  function closeHistory() { $("history_modal").style.display = "none"; }
+
+  $("btn-history").addEventListener("click", openHistory);
+  $("btn-history-close").addEventListener("click", closeHistory);
+  $("history_modal").addEventListener("click", e => { if (e.target.id === "history_modal") closeHistory(); });
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape" && $("history_modal").style.display !== "none") closeHistory();
   });
 
   function render() {
