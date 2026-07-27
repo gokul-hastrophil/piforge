@@ -13,6 +13,16 @@ rpi-images/
 packaging/build/
 packaging/dist/
 
+# .rpm build output (regenerate with packaging/build-rpm.sh)
+packaging/rpm-build/
+packaging/rpm-dist/
+
+# makepkg build output
+packaging/arch-dist/
+packaging/arch/*.pkg.tar.*
+packaging/arch/src/
+packaging/arch/pkg/
+
 # Python
 __pycache__/
 *.pyc

@@ -1,0 +1,59 @@
+# Maintainer: PiForge contributors <noreply@example.invalid>
+#
+# Unlike packaging/build-deb.sh and packaging/build-rpm.sh (which build
+# straight from a repo checkout's current working tree), this follows
+# normal Arch/AUR convention: makepkg fetches a specific tagged release
+# tarball and verifies it against a pinned checksum. That means sha256sums
+# below must be updated whenever pkgver bumps to a new release — that's
+# routine PKGBUILD maintenance, not a bug. To rebuild against your own
+# local checkout instead, use build-deb.sh/build-rpm.sh's approach; this
+# file is specifically for `makepkg`/AUR-style installs.
+pkgname=piforge
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Mass SD card installer for Raspberry Pi OS — flash many cards in parallel, fully pre-configured"
+arch=('any')
+url="https://github.com/gokul-hastrophil/piforge"
+license=('MIT')
+depends=(
+  'python'
+  'python-gobject'
+  'gobject-introspection-runtime'
+  'webkit2gtk-4.1'
+  'util-linux'
+  'coreutils'
+  'xz'
+  'openssl'
+  'wpa_supplicant'
+  'parted'
+  'jq'
+  'curl'
+  'polkit'
+)
+source=("$pkgname-$pkgver.tar.gz::https://github.com/gokul-hastrophil/piforge/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('6e18cfb3fa2618a7e04fc0271e19d4e2765fda77cc11afed814c4c0905dfef42')
+
+package() {
+  local src="$srcdir/$pkgname-$pkgver"
+
+  install -d "$pkgdir/opt/piforge"
+  install -m 0644 "$src/server.py" "$pkgdir/opt/piforge/server.py"
+  install -m 0644 "$src/index.html" "$pkgdir/opt/piforge/index.html"
+  install -m 0755 "$src/firstrun_gen.py" "$pkgdir/opt/piforge/firstrun_gen.py"
+  install -m 0644 "$src/config.example.json" "$pkgdir/opt/piforge/config.example.json"
+  install -m 0644 "$src/profiles.example.json" "$pkgdir/opt/piforge/profiles.example.json"
+  install -m 0755 "$src/flash-all.sh" "$pkgdir/opt/piforge/flash-all.sh"
+  install -m 0755 "$src/inject-config.sh" "$pkgdir/opt/piforge/inject-config.sh"
+  install -m 0755 "$src/check-requirements.sh" "$pkgdir/opt/piforge/check-requirements.sh"
+  install -m 0644 "$src/README.md" "$pkgdir/opt/piforge/README.md"
+  install -m 0644 "$src/LICENSE" "$pkgdir/opt/piforge/LICENSE"
+  install -m 0755 "$src/packaging/piforge-server-root" "$pkgdir/opt/piforge/piforge-server-root"
+
+  install -Dm0755 "$src/packaging/piforge" "$pkgdir/usr/bin/piforge"
+  install -Dm0644 "$src/packaging/debian/piforge.desktop" \
+    "$pkgdir/usr/share/applications/piforge.desktop"
+  install -Dm0644 "$src/packaging/piforge.svg" \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/piforge.svg"
+  install -Dm0644 "$src/packaging/debian/io.github.gokul-hastrophil.piforge.policy" \
+    "$pkgdir/usr/share/polkit-1/actions/io.github.gokul-hastrophil.piforge.policy"
+}

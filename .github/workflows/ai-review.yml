@@ -40,12 +40,13 @@ jobs:
             echo "::notice::ANTHROPIC_API_KEY not set — skipping AI review. See CONTRIBUTING.md 'Maintainer setup'."
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         if: steps.key_check.outputs.present == 'true'
         with:
           fetch-depth: 1
+          persist-credentials: false
 
-      - uses: anthropics/claude-code-action@v1
+      - uses: anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b # v1
         if: steps.key_check.outputs.present == 'true'
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
