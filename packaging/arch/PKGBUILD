@@ -9,7 +9,7 @@
 # local checkout instead, use build-deb.sh/build-rpm.sh's approach; this
 # file is specifically for `makepkg`/AUR-style installs.
 pkgname=piforge
-pkgver=1.0.0
+pkgver=1.1.0
 pkgrel=1
 pkgdesc="Mass SD card installer for Raspberry Pi OS — flash many cards in parallel, fully pre-configured"
 arch=('any')
@@ -31,7 +31,7 @@ depends=(
   'polkit'
 )
 source=("$pkgname-$pkgver.tar.gz::https://github.com/gokul-hastrophil/piforge/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('6e18cfb3fa2618a7e04fc0271e19d4e2765fda77cc11afed814c4c0905dfef42')
+sha256sums=('e2e5a77ce310f1fcd4b88b66b62a5c6488b0d4d1f6cffe6b4450f9aabeca7fe1')
 
 package() {
   local src="$srcdir/$pkgname-$pkgver"
