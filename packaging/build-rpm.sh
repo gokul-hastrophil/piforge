@@ -56,7 +56,19 @@ rpmbuild --define "_topdir ${RPMBUILD_ROOT}" \
 
 find "$RPMBUILD_ROOT/RPMS" -name '*.rpm' -exec cp -p {} "$DIST_DIR/" \;
 
+# `$(ls ...)` below can silently expand to nothing if rpmbuild didn't
+# actually produce anything (ls failing doesn't fail the enclosing
+# command substitution) — check explicitly instead of trusting the glob.
+rpms=("$DIST_DIR"/*.rpm)
+if [[ ! -f "${rpms[0]}" ]]; then
+    echo "ERROR: rpmbuild completed without producing an RPM." >&2
+    exit 1
+fi
+
 echo
-echo "Built: $(ls "$DIST_DIR"/*.rpm)"
-echo "Install with:   sudo dnf install $(ls "$DIST_DIR"/*.rpm)"
+printf 'Built:\n'
+printf '  %s\n' "${rpms[@]}"
+printf 'Install with:   sudo dnf install'
+printf ' %q' "${rpms[@]}"
+printf '\n'
 echo "Remove with:    sudo dnf remove piforge"
