@@ -23,6 +23,8 @@ need xz           "sudo apt install xz-utils"
 need openssl      "sudo apt install openssl"
 need wpa_passphrase "sudo apt install wpasupplicant"
 need partprobe    "sudo apt install parted"
+need mkfs.vfat    "sudo apt install dosfstools"
+need mkfs.ext4    "sudo apt install e2fsprogs"
 need jq           "sudo apt install jq"
 need curl         "sudo apt install curl"
 

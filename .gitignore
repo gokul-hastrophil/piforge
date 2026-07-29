@@ -1,6 +1,7 @@
 # Your real secrets — never commit these. Copy the .example.json files instead.
 config.json
 profiles.json
+partition_profiles.json
 
 # Downloaded/decompressed OS images (multi-GB, machine-local cache)
 rpi-images/

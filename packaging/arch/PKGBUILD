@@ -26,6 +26,8 @@ depends=(
   'openssl'
   'wpa_supplicant'
   'parted'
+  'dosfstools'
+  'e2fsprogs'
   'jq'
   'curl'
   'polkit'

@@ -24,6 +24,8 @@ Requires:       xz
 Requires:       openssl
 Requires:       wpa_supplicant
 Requires:       parted
+Requires:       dosfstools
+Requires:       e2fsprogs
 Requires:       jq
 Requires:       curl
 Requires:       polkit

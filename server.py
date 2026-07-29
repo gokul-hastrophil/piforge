@@ -71,6 +71,7 @@ def resolve_data_path(filename):
 CONFIG_PATH = resolve_data_path("config.json")
 CONFIG_EXAMPLE_PATH = os.path.join(BASE_DIR, "config.example.json")
 PROFILES_PATH = resolve_data_path("profiles.json")
+PARTITION_PROFILES_PATH = resolve_data_path("partition_profiles.json")
 
 IMAGES_DIR = os.path.join(real_home(), "rpi-images")
 IMAGE_FILE = os.path.join(IMAGES_DIR, "os-image.img.xz")   # compressed download
@@ -145,6 +146,38 @@ def save_profiles(profiles):
     os.replace(tmp, PROFILES_PATH)
 
 
+def load_partition_profiles():
+    """Named partition-layout presets, e.g. {"two-way-split": {"table": "gpt",
+    "partitions": [...]}}. No secrets here (unlike profiles.json) but kept
+    in the same per-user data dir for consistency."""
+    try:
+        with open(PARTITION_PROFILES_PATH) as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+    except Exception:
+        return {}
+
+
+def save_partition_profiles(profiles):
+    tmp = PARTITION_PROFILES_PATH + ".part"
+    with open(tmp, "w") as f:
+        json.dump(profiles, f, indent=2)
+    os.replace(tmp, PARTITION_PROFILES_PATH)
+
+
+def load_full_profiles():
+    """One named profile = a flash config and a partition layout saved
+    together — the UI has a single profile picker, not two. Storage stays
+    as the two separate files above (profiles.json/partition_profiles.json,
+    only one of which holds secrets) merged here on read; either half can
+    be absent for a given name."""
+    configs = load_profiles()
+    partitions = load_partition_profiles()
+    names = set(configs) | set(partitions)
+    return {name: {"config": configs.get(name), "partition": partitions.get(name)} for name in names}
+
+
 def log_history(device, hostname, status, duration_s, image_url):
     os.makedirs(IMAGES_DIR, exist_ok=True)
     is_new = not os.path.exists(HISTORY_PATH)
@@ -189,7 +222,8 @@ def set_job(dev, **kw):
         JOBS[dev].update(kw)
 
 
-BUSY_STATES = {"queued", "downloading", "writing", "verifying", "configuring"}
+BUSY_STATES = {"queued", "downloading", "writing", "verifying", "configuring",
+                "partitioning", "formatting"}
 
 
 def register_proc(dev, proc):
@@ -554,6 +588,341 @@ def flash_device(dev, cfg, hostname, static_ip=None):
         log_history(dev, hostname, "error", time.time() - start_time, image_url)
 
 
+# ---------------------------------------------------------------- partitioning
+
+# parted's mkpart FS-TYPE hint (alignment/partition-type only; the real
+# filesystem is created by mkfs below) and the mkfs command to actually
+# format each partition. "none" leaves a raw, unformatted partition.
+FSTYPES = {
+    "fat32": {"parted": "fat32", "mkfs": ["mkfs.vfat", "-F", "32"], "label_flag": "-n"},
+    "fat16": {"parted": "fat16", "mkfs": ["mkfs.vfat", "-F", "16"], "label_flag": "-n"},
+    "ext4": {"parted": "ext4", "mkfs": ["mkfs.ext4", "-F"], "label_flag": "-L"},
+    "ext3": {"parted": "ext3", "mkfs": ["mkfs.ext3", "-F"], "label_flag": "-L"},
+    "exfat": {"parted": "", "mkfs": ["mkfs.exfat"], "label_flag": "-n"},
+    "ntfs": {"parted": "ntfs", "mkfs": ["mkfs.ntfs", "-f"], "label_flag": "-L"},
+    "linux-swap": {"parted": "linux-swap", "mkfs": ["mkswap"], "label_flag": "-L"},
+    "none": {"parted": "", "mkfs": None, "label_flag": None},
+}
+
+
+def read_partition_table(dev):
+    """Current partition table of dev, via `parted -m -s unit MiB print`.
+    Confirmed field layout against a real (loopback) device:
+      BYT;
+      /dev/loopN:200MiB:loopback:512:512:gpt:Loopback device:;
+      1:1.00MiB:21.0MiB:20.0MiB:fat32:boot:boot, esp;
+    i.e. header line then one line per partition:
+      number:start:end:size:fstype:name:flags;
+    Raises RuntimeError (not CalledProcessError) with parted's own message
+    when the device has no recognised label yet — that's a normal,
+    expected state for a blank card, not a real error."""
+    out = subprocess.run(["parted", "-m", "-s", dev, "unit", "MiB", "print"],
+                          capture_output=True, text=True)
+    lines = [l for l in out.stdout.strip().split("\n") if l.strip()]
+    if len(lines) < 2:
+        raise RuntimeError((out.stderr or "no partition table").strip())
+    disk_fields = lines[1].rstrip(";").split(":")
+    table = disk_fields[5] if len(disk_fields) > 5 else "unknown"
+    size_mib = float(disk_fields[1].rstrip("MiBGiBkB"))
+    partitions = []
+    for line in lines[2:]:
+        f = line.rstrip(";").split(":")
+        partitions.append({
+            "number": int(f[0]),
+            "start_mib": float(f[1].rstrip("MiBGiBkB")),
+            "end_mib": float(f[2].rstrip("MiBGiBkB")),
+            "size_mib": float(f[3].rstrip("MiBGiBkB")),
+            "fstype": f[4] if len(f) > 4 else "",
+            "name": f[5] if len(f) > 5 else "",
+            "flags": [s.strip() for s in f[6].split(",")] if len(f) > 6 and f[6] else [],
+        })
+    return {"table": table, "size_mib": size_mib, "partitions": partitions}
+
+
+def part_path(dev, index):
+    """Partition device node for a given 1-based index.
+
+    Not a guess-both-and-see-what-exists: 'sdX' + '1' for /dev/sdX-style
+    names, but 'mmcblkX' + 'p1' for names that already end in a digit
+    (mmcblk/nvme/loop). The naive "try dev+str(index), else dev+'p'+
+    str(index)" approach is unsafe for /dev/loopN devices — dev+str(index)
+    can collide with an unrelated, already-existing device of a different
+    number (e.g. /dev/loop5 + "1" = /dev/loop51, a real, different loop
+    device, not a partition of loop5) — confirmed by testing against a
+    real loopback device, where this produced a wrong-device match."""
+    base = os.path.basename(dev)
+    sep = "p" if base[-1:].isdigit() else ""
+    return dev + sep + str(index)
+
+
+def wait_for_part(dev, index, timeout=15):
+    """Device nodes for newly-created partitions don't always exist the
+    instant partprobe returns — confirmed by testing against a loopback
+    device, where a flat sleep(2) intermittently missed a node that
+    appeared a few hundred ms later. Poll instead of guessing a fixed
+    delay, re-issuing partprobe periodically in case the first rescan
+    didn't fully propagate. udevadm settle is best-effort (absent on
+    some minimal images)."""
+    path = part_path(dev, index)
+    deadline = time.time() + timeout
+    tries = 0
+    while time.time() < deadline:
+        if os.path.exists(path):
+            return path
+        if tries % 5 == 0:
+            subprocess.run(["partprobe", dev], capture_output=True)
+        try:
+            subprocess.run(["udevadm", "settle", "--timeout=1"], capture_output=True)
+        except FileNotFoundError:
+            pass  # not every distro/image ships udevadm — fall back to plain polling
+        time.sleep(0.3)
+        tries += 1
+    return path if os.path.exists(path) else None
+
+
+def plan_partitions(dev, profile):
+    """Compute where every NEW partition will land — pure calculation, no
+    disk writes — so the actual creation loop just executes a plan instead
+    of interleaving math with mutation. Handles three things Phase 1 added
+    beyond the original percent-only/wipe-everything model:
+      - keep_existing: read the card's real current table and start placing
+        new partitions right after the last kept one, instead of always
+        wiping the whole disk.
+      - absolute sizing ("size_mib") alongside percent, and a bare "no size
+        given" entry meaning "fill whatever's left".
+      - MBR primary vs logical, auto-inserting the one extended container
+        a logical run needs, numbered exactly the way parted itself numbers
+        primaries/extended (sequential from the next free slot) and
+        logicals (always from 5) — confirmed against a real loopback device.
+    """
+    parts_spec = profile["partitions"]
+    keep_existing = int(profile.get("keep_existing", 0) or 0)
+    label_type = "gpt" if profile.get("table", "gpt") == "gpt" else "msdos"
+    disk_mib = device_size_bytes(dev) / 1024 / 1024
+
+    to_remove = []
+    if keep_existing > 0:
+        existing = read_partition_table(dev)
+        if len(existing["partitions"]) < keep_existing:
+            raise RuntimeError(
+                f"card has {len(existing['partitions'])} partition(s), "
+                f"need at least {keep_existing} to keep")
+        if (existing["table"] == "gpt") != (label_type == "gpt"):
+            raise RuntimeError("existing table type doesn't match this layout's table type")
+        kept = [p for p in existing["partitions"] if p["number"] <= keep_existing]
+        cursor = max(p["end_mib"] for p in kept)
+        # Partitions past the kept count are still physically occupying
+        # that space in the real table — leaving them in place makes every
+        # new partition collide with them (confirmed against a real
+        # loopback device: parted refused the new partition outright,
+        # "closest location we can manage" landing at the disk's end).
+        # Remove them first; highest number first so an MBR extended
+        # container isn't deleted out from under its own logicals.
+        to_remove = sorted((p["number"] for p in existing["partitions"] if p["number"] > keep_existing), reverse=True)
+    else:
+        cursor = 1.0  # standard 1 MiB alignment for a fresh table
+
+    # 1 MiB end slack for every table type, not just GPT (whose backup
+    # partition table needs it) — confirmed against a real loopback device
+    # that parted rejects a partition reaching the literal disk-size
+    # boundary even for MBR, always leave a small margin.
+    usable_end = disk_mib - 1.0
+    prim_num, log_num = keep_existing + 1, 5
+    extended_created = False
+    plan = []
+
+    for i, p in enumerate(parts_spec):
+        is_remainder = "size_mib" not in p and "percent" not in p
+        if "size_mib" in p:
+            end = cursor + float(p["size_mib"])
+        elif "percent" in p:
+            end = cursor + disk_mib * float(p["percent"]) / 100.0
+        else:
+            end = usable_end  # remainder — only sensible on the last entry
+        if is_remainder:
+            end = min(end, usable_end)
+        elif end > usable_end + 1e-6:
+            # An explicit size_mib/percent that doesn't fit is a user
+            # mistake (typo'd size, wrong card) — fail loudly instead of
+            # silently shrinking it to whatever's left, which would hide
+            # the mistake and hand back a smaller partition than asked for.
+            raise RuntimeError(
+                f"partition {i + 1} ({p.get('label', '?')}) needs "
+                f"{end - cursor:.0f}MiB but only {usable_end - cursor:.0f}MiB is left on this card")
+        if end <= cursor:
+            raise RuntimeError(f"partition {i + 1} ({p.get('label', '?')}) has no room left on this card")
+
+        is_logical = label_type == "msdos" and p.get("type") == "logical"
+        if is_logical and not extended_created:
+            plan.append({"kind": "extended", "number": prim_num,
+                         "start_mib": cursor, "end_mib": usable_end})
+            prim_num += 1
+            extended_created = True
+            cursor += 1.0  # EBR overhead before the first logical
+
+        number = log_num if is_logical else prim_num
+        if is_logical:
+            log_num += 1
+        else:
+            prim_num += 1
+        plan.append({"kind": "logical" if is_logical else "primary",
+                     "number": number, "start_mib": cursor, "end_mib": end, "spec": p})
+        cursor = end + (1.0 if is_logical else 0.0)
+
+    return label_type, plan, to_remove
+
+
+def partition_device(dev, profile):
+    start_time = time.time()
+    try:
+        check_cancelled(dev)
+        set_job(dev, state="partitioning", percent=0, message="Unmounting…")
+        subprocess.run(f"umount {dev}?* 2>/dev/null", shell=True)
+
+        keep_existing = int(profile.get("keep_existing", 0) or 0)
+
+        # Validate the layout against this card's real size before wiping
+        # anything — a plan_partitions() failure (e.g. a size that doesn't
+        # fit) should leave a fresh-table card untouched, not wiped-then-
+        # errored. (keep_existing>0 reads the current table instead, which
+        # is unaffected either way since nothing's wiped in that branch.)
+        check_cancelled(dev)
+        label_type, plan, to_remove = plan_partitions(dev, profile)
+        new_parts = [e for e in plan if e["kind"] != "extended"]
+
+        if keep_existing == 0:
+            check_cancelled(dev)
+            set_job(dev, state="partitioning", percent=5, message="Wiping old signatures…")
+            subprocess.run(["wipefs", "-a", dev], capture_output=True)
+            requested_type = "gpt" if profile.get("table", "gpt") == "gpt" else "msdos"
+            subprocess.run(["parted", "--script", dev, "mklabel", requested_type],
+                            check=True, capture_output=True)
+        else:
+            for number in to_remove:
+                check_cancelled(dev)
+                set_job(dev, state="partitioning", percent=5,
+                        message=f"Removing old partition {number}…")
+                subprocess.run(["parted", "--script", dev, "rm", str(number)],
+                                check=True, capture_output=True)
+
+        for idx, entry in enumerate(plan, start=1):
+            check_cancelled(dev)
+            set_job(dev, state="partitioning", percent=5 + round(40 * idx / len(plan)),
+                    message=f"Creating partition {idx}/{len(plan)}…")
+            # Integer MiB only — this parted build mis-parses a decimal
+            # point in a location argument (e.g. "33.3%" reads as two
+            # arguments "33" "3%" and fails with a cryptic "invalid syntax
+            # for locations" error); rounding whole MiB values sidesteps it
+            # entirely and is far more precise than percent for exact sizes.
+            start_arg, end_arg = f"{round(entry['start_mib'])}MiB", f"{round(entry['end_mib'])}MiB"
+            if entry["kind"] == "extended":
+                subprocess.run(["parted", "--script", dev, "mkpart", "extended", start_arg, end_arg],
+                                check=True, capture_output=True)
+                continue
+            p = entry["spec"]
+            spec = FSTYPES.get(p["fstype"], FSTYPES["none"])
+            if label_type == "gpt":
+                cmd = ["parted", "--script", dev, "mkpart", (p.get("label") or f"part{idx}")[:36]]
+            else:
+                cmd = ["parted", "--script", dev, "mkpart", entry["kind"]]
+            if spec["parted"]:
+                cmd.append(spec["parted"])
+            cmd += [start_arg, end_arg]
+            subprocess.run(cmd, check=True, capture_output=True)
+            for flag in (p.get("flags") or []):
+                subprocess.run(["parted", "--script", dev, "set", str(entry["number"]), flag, "on"],
+                                capture_output=True)
+
+        check_cancelled(dev)
+        subprocess.run(["partprobe", dev], capture_output=True)
+
+        for idx, entry in enumerate(new_parts, start=1):
+            check_cancelled(dev)
+            path = wait_for_part(dev, entry["number"])
+            if not path:
+                raise RuntimeError(f"partition {entry['number']} not found after create")
+            p = entry["spec"]
+            spec = FSTYPES.get(p["fstype"], FSTYPES["none"])
+            set_job(dev, state="formatting", percent=50 + round(45 * idx / len(new_parts)),
+                    message=f"Formatting partition {idx}/{len(new_parts)} ({p['fstype']})…")
+            if spec["mkfs"]:
+                cmd = list(spec["mkfs"])
+                label = (p.get("label") or "")[:16]
+                if label and spec["label_flag"]:
+                    cmd += [spec["label_flag"], label]
+                cmd += [path]
+                subprocess.run(cmd, check=True, capture_output=True)
+
+        check_cancelled(dev)
+        subprocess.run(["sync"])
+        set_job(dev, state="done", percent=100,
+                message=f"Done — {len(new_parts)} partition(s) created")
+        log_history(dev, "", "partitioned", time.time() - start_time, "")
+    except Cancelled:
+        unregister_proc(dev)
+        set_job(dev, state="cancelled", percent=0,
+                message="Cancelled — partition table may be incomplete, do not use the card")
+        log_history(dev, "", "cancelled", time.time() - start_time, "")
+    except subprocess.CalledProcessError as e:
+        err = e.stderr.decode(errors="replace")[:300] if isinstance(e.stderr, bytes) else str(e)[:300]
+        set_job(dev, state="error", percent=0, message=err or str(e)[:300])
+        log_history(dev, "", "error", time.time() - start_time, "")
+    except Exception as e:
+        set_job(dev, state="error", percent=0, message=str(e)[:300])
+        log_history(dev, "", "error", time.time() - start_time, "")
+
+
+def start_partition(devices, profile):
+    all_present = sorted(d["device"] for d in list_devices())
+    bad = [d for d in devices if d not in all_present]
+    if bad:
+        raise ValueError(f"not a removable/safe device: {', '.join(bad)}")
+    parts = profile.get("partitions") or []
+    if not parts:
+        raise ValueError("layout has no partitions")
+    if int(profile.get("keep_existing", 0) or 0) < 0:
+        raise ValueError("keep_existing can't be negative")
+    # Absolute (size_mib) entries can't be validated here — room depends on
+    # each selected card's actual size, which varies. Only the part of the
+    # layout expressed as percent can be sanity-checked up front; a bad
+    # size_mib/keep_existing combination surfaces as a clean per-card error
+    # from plan_partitions() instead.
+    pct_sum = sum(float(p["percent"]) for p in parts if "percent" in p)
+    if pct_sum > 100.5:
+        raise ValueError("partition percentages must sum to 100 or less")
+
+    # MBR only has 4 primary slots total, one of which an extended
+    # container eats if any logical partition is requested. This is a
+    # structural limit, not a sizing one — check it once here, independent
+    # of any card's actual size, instead of letting it surface later as a
+    # cryptic parted failure mid-way through a card that's already wiped.
+    keep_existing = int(profile.get("keep_existing", 0) or 0)
+    if profile.get("table", "gpt") != "gpt":
+        needs_extended = any(p.get("type") == "logical" for p in parts)
+        primary_count = sum(1 for p in parts if p.get("type") != "logical")
+        used_slots = keep_existing + primary_count + (1 if needs_extended else 0)
+        if used_slots > 4:
+            raise ValueError(
+                f"MBR supports at most 4 primary partitions (incl. the extended "
+                f"container for logical ones) — this layout needs {used_slots}")
+
+    threads = []
+    for dev in devices:
+        set_job(dev, state="queued", percent=0, message="Queued…", hostname=None)
+        t = threading.Thread(target=partition_device, args=(dev, profile), daemon=True)
+        threads.append(t)
+
+    def runner():
+        FLASH_ACTIVE.set()
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        FLASH_ACTIVE.clear()
+
+    threading.Thread(target=runner, daemon=True).start()
+
+
 def start_flash(devices, cfg):
     # Re-validate against current safe device list. Index cards by their
     # position in the *full* currently-connected list (not just the ones
@@ -614,6 +983,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
+                # The app updates via package reinstall while the WebKit
+                # view (or a plain browser tab) may keep running across
+                # that reinstall — without this, its own cache can serve
+                # a stale page indefinitely since nothing else here ever
+                # sent a cache-control header to invalidate it.
+                self.send_header("Cache-Control", "no-store")
                 self.end_headers()
                 self.wfile.write(body)
             except FileNotFoundError:
@@ -637,6 +1012,23 @@ class Handler(BaseHTTPRequestHandler):
             self._json(load_config_defaults())
         elif path == "/api/profiles":
             self._json(load_profiles())
+        elif path == "/api/partition-profiles":
+            self._json(load_partition_profiles())
+        elif path == "/api/full-profiles":
+            self._json(load_full_profiles())
+        elif path == "/api/partitions":
+            device = (query.get("device") or [""])[0]
+            safe = {d["device"] for d in list_devices()}
+            if device not in safe:
+                self._json({"error": "not a removable/safe device"}, 400)
+            else:
+                try:
+                    self._json(read_partition_table(device))
+                except Exception as e:
+                    # A blank card with no table yet is normal, not fatal —
+                    # let the UI show "no partitions yet" instead of an alert.
+                    self._json({"table": "unknown", "size_mib": 0, "partitions": [],
+                                "error": str(e)[:200]})
         elif path == "/api/history":
             limit = int(query.get("limit", ["50"])[0])
             self._json({"rows": read_history(limit)})
@@ -658,6 +1050,65 @@ class Handler(BaseHTTPRequestHandler):
                 profiles[name] = req["config"]
                 save_profiles(profiles)
                 self._json({"ok": True})
+            except Exception as e:
+                self._json({"error": str(e)}, 400)
+            return
+
+        if parsed.path == "/api/partition-profiles":
+            try:
+                req = json.loads(body)
+                name = (req.get("name") or "").strip()
+                if not name:
+                    raise ValueError("layout name is required")
+                if not req.get("partitions"):
+                    raise ValueError("layout has no partitions")
+                profiles = load_partition_profiles()
+                profiles[name] = {"table": req.get("table", "gpt"),
+                                   "keep_existing": int(req.get("keep_existing", 0) or 0),
+                                   "partitions": req["partitions"]}
+                save_partition_profiles(profiles)
+                self._json({"ok": True})
+            except Exception as e:
+                self._json({"error": str(e)}, 400)
+            return
+
+        if parsed.path == "/api/full-profiles":
+            try:
+                req = json.loads(body)
+                name = (req.get("name") or "").strip()
+                if not name:
+                    raise ValueError("profile name is required")
+                if req.get("config") is not None:
+                    profiles = load_profiles()
+                    profiles[name] = req["config"]
+                    save_profiles(profiles)
+                if req.get("partition") is not None:
+                    part = req["partition"]
+                    if not part.get("partitions"):
+                        raise ValueError("layout has no partitions")
+                    pprofiles = load_partition_profiles()
+                    pprofiles[name] = {"table": part.get("table", "gpt"),
+                                       "keep_existing": int(part.get("keep_existing", 0) or 0),
+                                       "partitions": part["partitions"]}
+                    save_partition_profiles(pprofiles)
+                self._json({"ok": True})
+            except Exception as e:
+                self._json({"error": str(e)}, 400)
+            return
+
+        if parsed.path == "/api/partition":
+            if os.geteuid() != 0:
+                return self._json({"error": "server not running as root — restart with sudo"}, 403)
+            if FLASH_ACTIVE.is_set():
+                return self._json({"error": "an operation is already in progress"}, 409)
+            try:
+                req = json.loads(body)
+                devices = req["devices"]
+                profile = req["profile"]
+                if not devices:
+                    raise ValueError("no devices selected")
+                start_partition(devices, profile)
+                self._json({"ok": True, "count": len(devices)})
             except Exception as e:
                 self._json({"error": str(e)}, 400)
             return
@@ -699,9 +1150,25 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         parsed = urllib.parse.urlparse(self.path)
+        name = urllib.parse.parse_qs(parsed.query).get("name", [""])[0]
+        if parsed.path == "/api/partition-profiles":
+            profiles = load_partition_profiles()
+            if name in profiles:
+                del profiles[name]
+                save_partition_profiles(profiles)
+            return self._json({"ok": True})
+        if parsed.path == "/api/full-profiles":
+            profiles = load_profiles()
+            if name in profiles:
+                del profiles[name]
+                save_profiles(profiles)
+            pprofiles = load_partition_profiles()
+            if name in pprofiles:
+                del pprofiles[name]
+                save_partition_profiles(pprofiles)
+            return self._json({"ok": True})
         if parsed.path != "/api/profiles":
             return self._json({"error": "not found"}, 404)
-        name = urllib.parse.parse_qs(parsed.query).get("name", [""])[0]
         profiles = load_profiles()
         if name in profiles:
             del profiles[name]

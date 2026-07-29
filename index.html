@@ -60,6 +60,7 @@
   }
   @media (max-width: 920px) { main { grid-template-columns: 1fr; } }
   .col { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+  .mode-body { display: flex; flex-direction: column; margin-top: 1.4rem; }
 
   .panel {
     background: var(--panel); border: 1px solid var(--line);
@@ -127,6 +128,8 @@
   button.primary:hover:not(:disabled) { background: var(--go-press); }
   button.primary:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
   button.primary:disabled { background: var(--line); color: var(--muted); cursor: not-allowed; }
+  button.primary.danger { background: var(--red); }
+  button.primary.danger:hover:not(:disabled) { background: var(--red-press); }
   button.secondary {
     font-size: 0.85rem; background: transparent; color: var(--muted);
     border: 1px solid var(--line); border-radius: 8px; padding: 0.5rem 0.8rem;
@@ -186,6 +189,41 @@
   .tag.done { background: #E4F5E6; color: var(--go); }
   .tag.error { background: #FCE4E4; color: var(--bad); }
   .tag.cancelling, .tag.cancelled { background: var(--line); color: var(--muted); }
+  .tag.partitioning, .tag.formatting { background: var(--red-tint); color: var(--red); }
+
+  .stagebar { flex: none; display: flex; gap: 0.6rem; padding: 0.9rem 1.5rem 0; max-width: 1320px; margin: 0 auto; width: 100%; }
+  .stagebtn {
+    font: inherit; font-weight: 700; font-size: 0.85rem; color: var(--muted);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px 10px 0 0;
+    padding: 0.6rem 1.1rem; cursor: pointer;
+  }
+  .stagebtn.active { color: var(--ink); border-bottom-color: var(--panel); background: var(--panel); box-shadow: 0 -1px 0 var(--accent) inset; }
+  .stagebtn:not(.active):hover { color: var(--ink); }
+
+  .partbar { display: flex; height: 2.8rem; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); }
+  .partseg {
+    display: flex; align-items: center; justify-content: center; min-width: 0;
+    font-size: 0.72rem; font-weight: 700; color: #fff; cursor: pointer;
+    padding: 0 0.3rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+    border-right: 1px solid rgba(255,255,255,0.35);
+  }
+  .partseg:last-child { border-right: none; }
+  .partseg.sel { outline: 3px solid var(--ink); outline-offset: -3px; }
+  .partlist { display: flex; flex-direction: column; gap: 0.7rem; margin-top: 0.7rem; }
+  .partrow {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem;
+    padding-bottom: 0.7rem; border-bottom: 1px solid var(--line);
+  }
+  .partrow:last-child { padding-bottom: 0; border-bottom: none; }
+  .partrow input[type=text] { flex: 1 1 7rem; min-width: 6rem; }
+  .partrow select.pp-fstype, .partrow select.pp-type { flex: 1 1 6rem; min-width: 5.5rem; }
+  .partrow select.pp-sizemode { flex: 0 1 4.8rem; min-width: 4.2rem; }
+  .partrow input[type=number] { flex: 0 1 4.5rem; min-width: 3.6rem; text-align: right; }
+  .partrow-actions { flex: 1 0 100%; display: flex; align-items: center; gap: 0.6rem; }
+  .partrow .check { margin: 0; flex: none; }
+  .partrow-actions .pp-remove { margin-left: auto; }
+  .pp_total { font-size: 0.78rem; color: var(--muted); margin-top: 0.5rem; text-align: right; }
+  .pp_total.bad { color: var(--bad); font-weight: 700; }
 
   button.cancel-batch {
     font: inherit; font-weight: 700; color: var(--bad); background: #FCE4E4;
@@ -257,10 +295,18 @@
     PiForge <span>· mass SD card installer</span>
   </div>
   <div class="right">
+    <button type="button" class="icon-btn" id="btn-bundle-upload" title="Upload settings + partition layout">⬆</button>
+    <button type="button" class="icon-btn" id="btn-bundle-download" title="Download settings + partition layout">⬇</button>
+    <input type="file" id="bundle_file" accept="application/json,.json" style="display:none">
     <button type="button" class="icon-btn" id="btn-history" title="Flash history">🕘</button>
     <div class="counter">Cards done: <b id="count">0</b></div>
   </div>
 </header>
+
+<div class="stagebar">
+  <button type="button" class="stagebtn active" id="tab-flash">1 · Flash OS</button>
+  <button type="button" class="stagebtn" id="tab-partition">2 · Partition cards</button>
+</div>
 
 <main>
   <div class="col">
@@ -274,10 +320,12 @@
       </div>
       <div class="row" style="margin-top:0.5rem">
         <div><input type="text" id="profile_name" placeholder="New profile name"></div>
-        <button type="button" class="tiny" id="btn-profile-save" title="Save current form as this profile">💾 Save as</button>
+        <button type="button" class="tiny" id="btn-profile-save" title="Save current flash config + partition layout as this profile">💾 Save as</button>
       </div>
+      <div class="hint" style="margin-top:0.5rem">One profile holds both the flash settings and the partition layout — pick it once, works on either tab.</div>
     </section>
 
+  <div class="mode-body" id="flash-mode">
     <section class="panel">
       <h2>Card setup</h2>
       <label>Hostname base</label>
@@ -376,14 +424,45 @@
         <button type="button" class="secondary" id="btn-reset">↺ Reset</button>
       </div>
       <button class="primary" id="btn-flash" disabled>SELECT CARDS</button>
-      <button type="button" class="cancel-batch" id="btn-cancel-batch" style="display:none">🛑 Cancel batch</button>
       <div class="warnbox">START erases every selected card completely.</div>
     </section>
   </div>
 
+  <div class="mode-body" id="partition-mode" style="display:none">
+    <section class="panel">
+      <h2>Partition layout</h2>
+      <label>Partition table</label>
+      <select id="pp_table">
+        <option value="gpt">GPT</option>
+        <option value="mbr">MBR (msdos)</option>
+      </select>
+
+      <div class="row" style="margin-top:0.7rem; align-items:flex-end">
+        <div>
+          <label>Existing partitions to keep</label>
+          <input type="number" id="pp_keep_existing" value="0" min="0" max="16" step="1">
+        </div>
+        <button type="button" class="secondary" id="btn-pp-read-current" style="flex:none">🔍 Read current layout</button>
+      </div>
+      <div class="hint" id="pp_current_layout"></div>
+
+      <div class="subhead">New partitions <span class="pp_total" id="pp_total"></span></div>
+      <div class="partbar" id="partbar"></div>
+      <div class="partlist" id="partlist"></div>
+      <button type="button" class="secondary" id="btn-pp-add" style="margin-top:0.7rem; flex:none; width:100%">+ Add partition</button>
+
+      <button class="primary danger" id="btn-partition" style="margin-top:1.2rem" disabled>SELECT CARDS</button>
+      <div class="warnbox">This ERASES the entire partition table on every selected card — all data lost.</div>
+    </section>
+  </div>
+  </div>
+
   <div class="col">
     <section class="panel" style="flex:1; display:flex; flex-direction:column; min-height:0;">
-      <h2 style="flex:none">Detected SD cards <span class="scanstate" id="scanstate"></span></h2>
+      <div style="display:flex; align-items:center; justify-content:space-between; flex:none">
+        <h2 style="flex:none; margin:0">Detected SD cards <span class="scanstate" id="scanstate"></span></h2>
+      </div>
+      <button type="button" class="cancel-batch" id="btn-cancel-batch" style="display:none">🛑 Cancel batch</button>
       <div class="devgrid" id="devgrid" style="flex:1; overflow-y:auto; min-height:0;">
         <div class="empty">
           <div class="bigicon pulse">🗂️</div>
@@ -414,7 +493,8 @@ all selected cards are written in parallel</footer>
   const $ = id => document.getElementById(id);
   let devices = [], flashing = false, wasFlashing = false, misses = 0;
   const selected = new Set();
-  const BUSY = ["queued", "downloading", "writing", "verifying", "configuring", "cancelling"];
+  const BUSY = ["queued", "downloading", "writing", "verifying", "configuring",
+                "partitioning", "formatting", "cancelling"];
   const STORAGE_KEY = "piForgeConfig";
 
   const esc = s => String(s).replace(/[&<>"']/g, c =>
@@ -681,9 +761,9 @@ all selected cards are written in parallel</footer>
     loadDefaults();
   });
 
-  // ---- Profiles ----
+  // ---- Profiles (one profile = flash config + partition layout, together) ----
   async function refreshProfiles(selectName) {
-    const profiles = await (await fetch("/api/profiles")).json();
+    const profiles = await (await fetch("/api/full-profiles")).json();
     const sel = $("profile_select");
     sel.innerHTML = `<option value="">— none —</option>` +
       Object.keys(profiles).sort().map(name =>
@@ -692,21 +772,39 @@ all selected cards are written in parallel</footer>
     return profiles;
   }
 
+  function applyProfileEntry(entry) {
+    if (!entry) return;
+    if (entry.config) applyToForm(entry.config);
+    if (entry.partition && Array.isArray(entry.partition.partitions) && entry.partition.partitions.length) {
+      ppTable = entry.partition.table || "gpt";
+      $("pp_table").value = ppTable;
+      keepExisting = entry.partition.keep_existing || 0;
+      $("pp_keep_existing").value = keepExisting;
+      partitions = entry.partition.partitions;
+      selectedPart = 0;
+      renderAll();
+    }
+  }
+
   $("profile_select").addEventListener("change", async () => {
     const name = $("profile_select").value;
     if (!name) return;
     const profiles = await refreshProfiles(name);
-    if (profiles[name]) applyToForm(profiles[name]);
+    applyProfileEntry(profiles[name]);
   });
 
   $("btn-profile-save").addEventListener("click", async () => {
     const name = $("profile_name").value.trim();
     if (!name) { alert("Enter a profile name first."); return; }
-    await fetch("/api/profiles", {
+    const res = await (await fetch("/api/full-profiles", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, config: readForm() }),
-    });
+      body: JSON.stringify({
+        name, config: readForm(),
+        partition: { table: ppTable, keep_existing: keepExisting, partitions },
+      }),
+    })).json();
+    if (res.error) { alert("Error: " + res.error); return; }
     $("profile_name").value = "";
     await refreshProfiles(name);
   });
@@ -715,7 +813,7 @@ all selected cards are written in parallel</footer>
     const name = $("profile_select").value;
     if (!name) return;
     if (!confirm(`Delete profile "${name}"?`)) return;
-    await fetch(`/api/profiles?name=${encodeURIComponent(name)}`, { method: "DELETE" });
+    await fetch(`/api/full-profiles?name=${encodeURIComponent(name)}`, { method: "DELETE" });
     await refreshProfiles();
   });
 
@@ -791,7 +889,8 @@ all selected cards are written in parallel</footer>
         render();
       }));
     grid.querySelectorAll("button[data-retry]").forEach(btn =>
-      btn.addEventListener("click", () => startFlashing([btn.dataset.retry])));
+      btn.addEventListener("click", () => mode === "partition"
+        ? startPartitioning([btn.dataset.retry]) : startFlashing([btn.dataset.retry])));
     grid.querySelectorAll("button[data-cancel]").forEach(btn =>
       btn.addEventListener("click", () => cancelCards([btn.dataset.cancel])));
     updateButton();
@@ -814,10 +913,22 @@ all selected cards are written in parallel</footer>
     const btn = $("btn-flash");
     const cancelBtn = $("btn-cancel-batch");
     cancelBtn.style.display = flashing ? "block" : "none";
-    if (flashing) { btn.disabled = true; btn.textContent = "FLASHING…"; return; }
     const n = selected.size;
-    btn.disabled = n === 0;
-    btn.textContent = n === 0 ? "SELECT CARDS" : `START — FLASH ${n} CARD${n > 1 ? "S" : ""}`;
+    if (flashing) { btn.disabled = true; btn.textContent = "FLASHING…"; }
+    else { btn.disabled = n === 0; btn.textContent = n === 0 ? "SELECT CARDS" : `START — FLASH ${n} CARD${n > 1 ? "S" : ""}`; }
+
+    const pbtn = $("btn-partition");
+    // Only the percent-mode slice of the layout can be checked here — a
+    // layout is free to mix percent/absolute-MiB/remainder entries, so
+    // "must sum to exactly 100%" (the old rule) would wrongly block valid
+    // layouts like "10% boot + remainder data". Just block genuine
+    // over-allocation; per-card fit for MiB/remainder entries is checked
+    // server-side, since it depends on that card's actual size.
+    if (flashing) { pbtn.disabled = true; pbtn.textContent = "WORKING…"; }
+    else {
+      pbtn.disabled = n === 0 || pctSum() > 100.5;
+      pbtn.textContent = n === 0 ? "SELECT CARDS" : `ERASE & PARTITION ${n} CARD${n > 1 ? "S" : ""}`;
+    }
   }
 
   async function poll() {
@@ -880,6 +991,259 @@ all selected cards are written in parallel</footer>
   }
 
   $("btn-flash").addEventListener("click", () => startFlashing([...selected].sort()));
+
+  function downloadJSON(obj, filename) {
+    const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  // ---------------------------------------------------------- partitioning (stage 2)
+
+  let mode = "flash";
+  let ppTable = "gpt";
+  let keepExisting = 0;
+  let selectedPart = 0;
+  let partitions = [
+    { label: "boot", fstype: "fat32", size_mode: "percent", percent: 10, type: "primary", flags: ["boot"] },
+    { label: "data", fstype: "ext4", size_mode: "remainder", type: "primary", flags: [] },
+  ];
+  const FSTYPE_OPTIONS = [
+    ["fat32", "FAT32"], ["fat16", "FAT16"], ["ext4", "ext4"], ["ext3", "ext3"],
+    ["exfat", "exFAT"], ["ntfs", "NTFS"], ["linux-swap", "Linux swap"], ["none", "Unformatted"],
+  ];
+  const PART_FLAGS = ["boot", "esp", "lba"];
+  const PART_COLORS = ["#C51A4A", "#3BAA47", "#C8790A", "#767672", "#1B1B1B", "#A0143C"];
+
+  function setMode(m) {
+    mode = m;
+    $("flash-mode").style.display = m === "flash" ? "" : "none";
+    $("partition-mode").style.display = m === "partition" ? "" : "none";
+    $("tab-flash").classList.toggle("active", m === "flash");
+    $("tab-partition").classList.toggle("active", m === "partition");
+    updateButton();
+  }
+  $("tab-flash").addEventListener("click", () => setMode("flash"));
+  $("tab-partition").addEventListener("click", () => setMode("partition"));
+
+  function pctSum() {
+    return partitions.filter(p => p.size_mode === "percent")
+      .reduce((s, p) => s + (Number(p.percent) || 0), 0);
+  }
+
+  function barWeight(p) {
+    if (p.size_mode === "percent") return Math.max(Number(p.percent) || 0, 1);
+    if (p.size_mode === "mib") return Math.max(Number(p.size_mib) || 0, 1);
+    return Math.max(100 - pctSum(), 10);  // remainder — rough visual guess only
+  }
+
+  function sizeLabel(p) {
+    if (p.size_mode === "percent") return `${p.percent || 0}%`;
+    if (p.size_mode === "mib") return `${p.size_mib || 0} MiB`;
+    return "rest";
+  }
+
+  function renderBar() {
+    const bar = $("partbar");
+    bar.innerHTML = partitions.map((p, i) => `<div class="partseg ${i === selectedPart ? "sel" : ""}"
+      style="flex:${barWeight(p)}; background:${PART_COLORS[i % PART_COLORS.length]}"
+      data-idx="${i}" title="${esc(p.label)} · ${sizeLabel(p)} · ${esc(p.fstype)}">${esc(p.label)} ${sizeLabel(p)}</div>`
+    ).join("");
+    bar.querySelectorAll(".partseg").forEach(el => el.addEventListener("click", () => {
+      selectedPart = Number(el.dataset.idx);
+      renderList(); renderBar();
+    }));
+  }
+
+  function renderList() {
+    const list = $("partlist");
+    const showType = ppTable === "mbr";
+    list.innerHTML = partitions.map((p, i) => `<div class="partrow ${i === selectedPart ? "sel" : ""}">
+      <input type="text" class="pp-label" data-idx="${i}" value="${esc(p.label)}" placeholder="label">
+      <select class="pp-fstype" data-idx="${i}">
+        ${FSTYPE_OPTIONS.map(([v, t]) => `<option value="${v}" ${p.fstype === v ? "selected" : ""}>${t}</option>`).join("")}
+      </select>
+      <select class="pp-sizemode" data-idx="${i}">
+        <option value="percent" ${p.size_mode === "percent" ? "selected" : ""}>%</option>
+        <option value="mib" ${p.size_mode === "mib" ? "selected" : ""}>MiB</option>
+        <option value="remainder" ${p.size_mode === "remainder" ? "selected" : ""}>rest</option>
+      </select>
+      <input type="number" class="pp-sizevalue" data-idx="${i}"
+             value="${p.size_mode === "mib" ? (p.size_mib ?? "") : (p.percent ?? "")}"
+             min="1" step="1" style="display:${p.size_mode === "remainder" ? "none" : ""}">
+      ${showType ? `<select class="pp-type" data-idx="${i}">
+        <option value="primary" ${p.type !== "logical" ? "selected" : ""}>Primary</option>
+        <option value="logical" ${p.type === "logical" ? "selected" : ""}>Logical</option>
+      </select>` : ""}
+      <div class="partrow-actions">
+        ${PART_FLAGS.map(f => `<label class="check" title="${f}"><input type="checkbox" class="pp-flag" data-idx="${i}" data-flag="${f}"
+          ${(p.flags || []).includes(f) ? "checked" : ""}><span>${f}</span></label>`).join("")}
+        <button type="button" class="tiny danger pp-remove" data-idx="${i}" ${partitions.length <= 1 ? "disabled" : ""} title="Remove">✕</button>
+      </div>
+    </div>`).join("");
+
+    list.querySelectorAll(".pp-label").forEach(el => el.addEventListener("input", () => {
+      partitions[el.dataset.idx].label = el.value; renderBar(); updateTotal();
+    }));
+    list.querySelectorAll(".pp-fstype").forEach(el => el.addEventListener("change", () => {
+      partitions[el.dataset.idx].fstype = el.value; renderBar();
+    }));
+    list.querySelectorAll(".pp-sizemode").forEach(el => el.addEventListener("change", () => {
+      const p = partitions[el.dataset.idx];
+      p.size_mode = el.value;
+      renderList(); renderBar(); updateTotal();
+    }));
+    list.querySelectorAll(".pp-sizevalue").forEach(el => el.addEventListener("input", () => {
+      const p = partitions[el.dataset.idx];
+      if (p.size_mode === "mib") p.size_mib = Number(el.value) || 0;
+      else p.percent = Number(el.value) || 0;
+      renderBar(); updateTotal();
+    }));
+    list.querySelectorAll(".pp-type").forEach(el => el.addEventListener("change", () => {
+      partitions[el.dataset.idx].type = el.value;
+    }));
+    list.querySelectorAll(".pp-flag").forEach(el => el.addEventListener("change", () => {
+      const p = partitions[el.dataset.idx];
+      p.flags = p.flags || [];
+      const f = el.dataset.flag;
+      if (el.checked) { if (!p.flags.includes(f)) p.flags.push(f); }
+      else p.flags = p.flags.filter(x => x !== f);
+    }));
+    list.querySelectorAll(".pp-remove").forEach(el => el.addEventListener("click", () => {
+      const i = Number(el.dataset.idx);
+      partitions.splice(i, 1);
+      if (selectedPart >= partitions.length) selectedPart = partitions.length - 1;
+      renderAll();
+    }));
+  }
+
+  function updateTotal() {
+    const pct = pctSum();
+    const mibCount = partitions.filter(p => p.size_mode === "mib").length;
+    const remCount = partitions.filter(p => p.size_mode === "remainder").length;
+    const bits = [];
+    if (pct) bits.push(`${pct}% of card`);
+    if (mibCount) bits.push(`${mibCount} fixed-size`);
+    if (remCount) bits.push(`${remCount} remainder`);
+    const el = $("pp_total");
+    el.textContent = bits.join(" + ") || "no partitions";
+    el.classList.toggle("bad", pct > 100.5);
+    updateButton();
+  }
+
+  function renderAll() { renderList(); renderBar(); updateTotal(); }
+
+  $("btn-pp-add").addEventListener("click", () => {
+    partitions.push({ label: `part${partitions.length + 1}`, fstype: "ext4", size_mode: "percent", percent: 10, type: "primary", flags: [] });
+    selectedPart = partitions.length - 1;
+    renderAll();
+  });
+  $("pp_table").addEventListener("change", () => { ppTable = $("pp_table").value; renderList(); });
+  $("pp_keep_existing").addEventListener("input", () => {
+    keepExisting = Math.max(0, parseInt($("pp_keep_existing").value, 10) || 0);
+  });
+
+  $("btn-pp-read-current").addEventListener("click", async () => {
+    const dev = [...selected].sort()[0];
+    const out = $("pp_current_layout");
+    if (!dev) { out.textContent = "Select a card first."; return; }
+    out.textContent = "Reading…";
+    try {
+      const r = await fetch(`/api/partitions?device=${encodeURIComponent(dev)}`);
+      const data = await r.json();
+      if (!data.partitions || !data.partitions.length) {
+        out.textContent = data.error
+          ? `${dev}: couldn't read partition table (${data.error})`
+          : `${dev}: no partition table yet (blank card).`;
+        return;
+      }
+      const rows = data.partitions.map(p =>
+        `#${p.number} ${p.fstype || "?"} ${Math.round(p.size_mib)}MiB${p.name ? ` "${p.name}"` : ""}${p.flags.length ? ` [${p.flags.join(",")}]` : ""}`
+      ).join(" · ");
+      out.textContent = `${dev}: ${data.table}, ${data.partitions.length} partition(s) — ${rows}`;
+    } catch (e) {
+      out.textContent = "Couldn't read current layout: " + e.message;
+    }
+  });
+
+  async function startPartitioning(devs) {
+    if (!devs.length) return;
+    const verb = keepExisting > 0
+      ? `keep the first ${keepExisting} existing partition(s) and add ${partitions.length} new one(s) after them`
+      : `ERASE the entire partition table and create ${partitions.length} new partition(s)`;
+    if (!confirm(`On:\n\n${devs.join("\n")}\n\nthis will ${verb}. Continue?`)) return;
+    const r = await fetch("/api/partition", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ devices: devs, profile: { table: ppTable, keep_existing: keepExisting, partitions } }),
+    });
+    const res = await r.json();
+    if (res.error) alert("Error: " + res.error);
+    else { flashing = true; updateButton(); }
+    poll();
+  }
+  $("btn-partition").addEventListener("click", () => startPartitioning([...selected].sort()));
+
+  renderAll();
+
+  // ---------------------------------------------------- combined upload/download
+  $("btn-bundle-download").addEventListener("click", () => {
+    const cfg = readForm();
+    downloadJSON({
+      config: cfg,
+      partition: { table: ppTable, keep_existing: keepExisting, partitions },
+    }, `piforge-config-${cfg.hostname || "settings"}.json`);
+  });
+
+  $("btn-bundle-upload").addEventListener("click", () => $("bundle_file").click());
+  $("bundle_file").addEventListener("change", async () => {
+    const file = $("bundle_file").files[0];
+    $("bundle_file").value = "";
+    if (!file) return;
+
+    let data;
+    try { data = JSON.parse(await file.text()); }
+    catch (e) { alert("Couldn't read that file: " + e.message); return; }
+
+    const hasConfig = data.config && typeof data.config === "object";
+    const hasPartition = data.partition && Array.isArray(data.partition.partitions) && data.partition.partitions.length;
+    if (!hasConfig && !hasPartition) {
+      alert("That file has no 'config' or 'partition' section — nothing to load.");
+      return;
+    }
+
+    const name = prompt("Save this upload as profile name:", "");
+    if (!name || !name.trim()) return;
+    const profileName = name.trim();
+
+    if (hasConfig) applyToForm(data.config);
+    if (hasPartition) {
+      ppTable = data.partition.table || "gpt";
+      $("pp_table").value = ppTable;
+      keepExisting = data.partition.keep_existing || 0;
+      $("pp_keep_existing").value = keepExisting;
+      partitions = data.partition.partitions;
+      selectedPart = 0;
+      renderAll();
+    }
+
+    try {
+      const res = await (await fetch("/api/full-profiles", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: profileName,
+          config: hasConfig ? data.config : null,
+          partition: hasPartition ? { table: ppTable, keep_existing: keepExisting, partitions } : null,
+        }),
+      })).json();
+      if (res.error) throw new Error(res.error);
+      await refreshProfiles(profileName);
+    } catch (e) {
+      alert("Applied to the form, but saving profile '" + profileName + "' failed: " + e.message);
+    }
+  });
 
   populateCountries();
   populateTimezones();
