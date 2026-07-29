@@ -878,7 +878,7 @@ all selected cards are written in parallel</footer>
         </div>
         <div class="devside">
           ${st ? `<span class="tag ${esc(st)} ${busy ? "pulse" : ""}">${esc(st.toUpperCase())}</span>` : ""}
-          ${(st === "error" || st === "cancelled") && !flashing ? `<button type="button" class="tiny retry" data-retry="${esc(d.device)}">↻ Retry</button>` : ""}
+          ${(st === "error" || st === "cancelled") && !flashing ? `<button type="button" class="tiny retry" data-retry="${esc(d.device)}" data-kind="${esc(job.kind || mode)}">↻ Retry</button>` : ""}
           ${busy && st !== "cancelling" ? `<button type="button" class="tiny danger" data-cancel="${esc(d.device)}">⏹ Stop</button>` : ""}
         </div>
       </div>`;
@@ -889,7 +889,7 @@ all selected cards are written in parallel</footer>
         render();
       }));
     grid.querySelectorAll("button[data-retry]").forEach(btn =>
-      btn.addEventListener("click", () => mode === "partition"
+      btn.addEventListener("click", () => btn.dataset.kind === "partition"
         ? startPartitioning([btn.dataset.retry]) : startFlashing([btn.dataset.retry])));
     grid.querySelectorAll("button[data-cancel]").forEach(btn =>
       btn.addEventListener("click", () => cancelCards([btn.dataset.cancel])));
@@ -1041,9 +1041,18 @@ all selected cards are written in parallel</footer>
   }
 
   function sizeLabel(p) {
-    if (p.size_mode === "percent") return `${p.percent || 0}%`;
-    if (p.size_mode === "mib") return `${p.size_mib || 0} MiB`;
+    // Number(...) neutralizes untrusted values (uploaded bundles/saved
+    // profiles assign straight into `partitions` with no per-field
+    // validation) — a non-numeric percent/size_mib collapses to 0 instead
+    // of being interpolated into the DOM as-is.
+    if (p.size_mode === "percent") return `${Number(p.percent) || 0}%`;
+    if (p.size_mode === "mib") return `${Number(p.size_mib) || 0} MiB`;
     return "rest";
+  }
+
+  function safeSizeValue(v) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : "";
   }
 
   function renderBar() {
@@ -1072,7 +1081,7 @@ all selected cards are written in parallel</footer>
         <option value="remainder" ${p.size_mode === "remainder" ? "selected" : ""}>rest</option>
       </select>
       <input type="number" class="pp-sizevalue" data-idx="${i}"
-             value="${p.size_mode === "mib" ? (p.size_mib ?? "") : (p.percent ?? "")}"
+             value="${p.size_mode === "mib" ? safeSizeValue(p.size_mib) : safeSizeValue(p.percent)}"
              min="1" step="1" style="display:${p.size_mode === "remainder" ? "none" : ""}">
       ${showType ? `<select class="pp-type" data-idx="${i}">
         <option value="primary" ${p.type !== "logical" ? "selected" : ""}>Primary</option>

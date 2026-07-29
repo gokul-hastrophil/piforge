@@ -12,8 +12,10 @@ Run:  sudo python3 server.py       then open http://127.0.0.1:47823
 """
 
 import json
+import math
 import os
 import re
+import shutil
 import signal
 import subprocess
 import tempfile
@@ -680,6 +682,26 @@ def wait_for_part(dev, index, timeout=15):
     return path if os.path.exists(path) else None
 
 
+def run_cancellable(dev, cmd):
+    """Run a partitioning subprocess (parted/mkfs) so a cancel mid-call can
+    actually kill it via killpg (request_cancel + register_proc), instead
+    of only taking effect at the next check_cancelled() once it finishes
+    on its own — the same pattern flash_device() uses for dd. Mirrors
+    subprocess.run(check=True)'s contract: raises CalledProcessError on a
+    genuine nonzero exit, but check_cancelled() runs first so a
+    cancel-induced kill surfaces as Cancelled, not a raw error."""
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             start_new_session=True)
+    register_proc(dev, proc)
+    try:
+        out, err = proc.communicate()
+    finally:
+        unregister_proc(dev)
+    check_cancelled(dev)
+    if proc.returncode != 0:
+        raise subprocess.CalledProcessError(proc.returncode, cmd, output=out, stderr=err)
+
+
 def plan_partitions(dev, profile):
     """Compute where every NEW partition will land — pure calculation, no
     disk writes — so the actual creation loop just executes a plan instead
@@ -710,7 +732,10 @@ def plan_partitions(dev, profile):
         if (existing["table"] == "gpt") != (label_type == "gpt"):
             raise RuntimeError("existing table type doesn't match this layout's table type")
         kept = [p for p in existing["partitions"] if p["number"] <= keep_existing]
-        cursor = max(p["end_mib"] for p in kept)
+        # The creation loop rounds start_mib to a whole MiB; rounding a
+        # fractional kept-partition end *down* would place the new
+        # partition's start inside it, so ceil here instead.
+        cursor = math.ceil(max(p["end_mib"] for p in kept))
         # Partitions past the kept count are still physically occupying
         # that space in the real table — leaving them in place makes every
         # new partition collide with them (confirmed against a real
@@ -805,6 +830,7 @@ def partition_device(dev, profile):
                 subprocess.run(["parted", "--script", dev, "rm", str(number)],
                                 check=True, capture_output=True)
 
+        flag_warnings = []
         for idx, entry in enumerate(plan, start=1):
             check_cancelled(dev)
             set_job(dev, state="partitioning", percent=5 + round(40 * idx / len(plan)),
@@ -816,8 +842,7 @@ def partition_device(dev, profile):
             # entirely and is far more precise than percent for exact sizes.
             start_arg, end_arg = f"{round(entry['start_mib'])}MiB", f"{round(entry['end_mib'])}MiB"
             if entry["kind"] == "extended":
-                subprocess.run(["parted", "--script", dev, "mkpart", "extended", start_arg, end_arg],
-                                check=True, capture_output=True)
+                run_cancellable(dev, ["parted", "--script", dev, "mkpart", "extended", start_arg, end_arg])
                 continue
             p = entry["spec"]
             spec = FSTYPES.get(p["fstype"], FSTYPES["none"])
@@ -828,10 +853,17 @@ def partition_device(dev, profile):
             if spec["parted"]:
                 cmd.append(spec["parted"])
             cmd += [start_arg, end_arg]
-            subprocess.run(cmd, check=True, capture_output=True)
+            run_cancellable(dev, cmd)
             for flag in (p.get("flags") or []):
-                subprocess.run(["parted", "--script", dev, "set", str(entry["number"]), flag, "on"],
-                                capture_output=True)
+                r = subprocess.run(["parted", "--script", dev, "set", str(entry["number"]), flag, "on"],
+                                    capture_output=True)
+                if r.returncode != 0:
+                    # Not fatal (the partition itself is fine) but silently
+                    # ignoring this can hand back an unbootable card (e.g. a
+                    # rejected "boot"/"esp" flag) while reporting success —
+                    # surface it in the final message instead.
+                    err = r.stderr.decode(errors="replace").strip()[:120]
+                    flag_warnings.append(f"partition {entry['number']} flag '{flag}': {err}")
 
         check_cancelled(dev)
         subprocess.run(["partprobe", dev], capture_output=True)
@@ -851,12 +883,14 @@ def partition_device(dev, profile):
                 if label and spec["label_flag"]:
                     cmd += [spec["label_flag"], label]
                 cmd += [path]
-                subprocess.run(cmd, check=True, capture_output=True)
+                run_cancellable(dev, cmd)
 
         check_cancelled(dev)
         subprocess.run(["sync"])
-        set_job(dev, state="done", percent=100,
-                message=f"Done — {len(new_parts)} partition(s) created")
+        done_message = f"Done — {len(new_parts)} partition(s) created"
+        if flag_warnings:
+            done_message += f" (warning: {'; '.join(flag_warnings)})"
+        set_job(dev, state="done", percent=100, message=done_message)
         log_history(dev, "", "partitioned", time.time() - start_time, "")
     except Cancelled:
         unregister_proc(dev)
@@ -891,6 +925,20 @@ def start_partition(devices, profile):
     if pct_sum > 100.5:
         raise ValueError("partition percentages must sum to 100 or less")
 
+    # Every mkfs binary the layout needs must exist up front — packaging
+    # only guarantees dosfstools/e2fsprogs (fat32/fat16/ext4/ext3), not
+    # exfatprogs/ntfs-3g for exfat/ntfs. Catching this before any wipe
+    # means a missing tool is a clean error instead of a FileNotFoundError
+    # after the card has already been repartitioned.
+    missing_tools = sorted({
+        FSTYPES[p["fstype"]]["mkfs"][0]
+        for p in parts
+        if FSTYPES.get(p.get("fstype"), FSTYPES["none"])["mkfs"]
+        and shutil.which(FSTYPES[p["fstype"]]["mkfs"][0]) is None
+    })
+    if missing_tools:
+        raise ValueError(f"missing filesystem tool(s): {', '.join(missing_tools)}")
+
     # MBR only has 4 primary slots total, one of which an extended
     # container eats if any logical partition is requested. This is a
     # structural limit, not a sizing one — check it once here, independent
@@ -905,20 +953,37 @@ def start_partition(devices, profile):
             raise ValueError(
                 f"MBR supports at most 4 primary partitions (incl. the extended "
                 f"container for logical ones) — this layout needs {used_slots}")
+        # parted numbers primaries first and logicals from 5 (see
+        # plan_partitions) — a primary listed after a logical would land
+        # inside the extended container's span and get rejected mid-run.
+        seen_logical = False
+        for p in parts:
+            if p.get("type") == "logical":
+                seen_logical = True
+            elif seen_logical:
+                raise ValueError("all primary partitions must come before logical ones in an MBR layout")
 
     threads = []
     for dev in devices:
-        set_job(dev, state="queued", percent=0, message="Queued…", hostname=None)
+        set_job(dev, state="queued", percent=0, message="Queued…", hostname=None, kind="partition")
         t = threading.Thread(target=partition_device, args=(dev, profile), daemon=True)
         threads.append(t)
 
+    # Claim the busy flag synchronously, before any request can race a
+    # second one in — it used to only get set inside runner() on a
+    # separate thread, so two overlapping /api/partition (or a /api/flash)
+    # requests could both pass do_POST's FLASH_ACTIVE check and run
+    # destructive work on the same device concurrently.
+    FLASH_ACTIVE.set()
+
     def runner():
-        FLASH_ACTIVE.set()
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-        FLASH_ACTIVE.clear()
+        try:
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+        finally:
+            FLASH_ACTIVE.clear()
 
     threading.Thread(target=runner, daemon=True).start()
 
@@ -944,17 +1009,22 @@ def start_flash(devices, cfg):
         hostname = (f"{cfg['hostname']}{i}" if cfg.get("number_hostnames", True)
                     else cfg["hostname"])
         static_ip = compute_static_ip(cfg["static_ip_base"], i) if cfg.get("static_ip_base") else None
-        set_job(dev, state="queued", percent=0, message="Queued…", hostname=hostname)
+        set_job(dev, state="queued", percent=0, message="Queued…", hostname=hostname, kind="flash")
         t = threading.Thread(target=flash_device, args=(dev, cfg, hostname, static_ip), daemon=True)
         threads.append(t)
 
+    # See start_partition() for why this is claimed synchronously here
+    # rather than inside runner() on its own thread.
+    FLASH_ACTIVE.set()
+
     def runner():
-        FLASH_ACTIVE.set()
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-        FLASH_ACTIVE.clear()
+        try:
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+        finally:
+            FLASH_ACTIVE.clear()
 
     threading.Thread(target=runner, daemon=True).start()
 
@@ -1078,14 +1148,18 @@ class Handler(BaseHTTPRequestHandler):
                 name = (req.get("name") or "").strip()
                 if not name:
                     raise ValueError("profile name is required")
+                # Validate both halves before writing either — otherwise a
+                # bad partition section (caught below) would still leave a
+                # good config half already committed, half-creating the
+                # profile while the client sees this as a failed request.
+                part = req.get("partition")
+                if part is not None and not part.get("partitions"):
+                    raise ValueError("layout has no partitions")
                 if req.get("config") is not None:
                     profiles = load_profiles()
                     profiles[name] = req["config"]
                     save_profiles(profiles)
-                if req.get("partition") is not None:
-                    part = req["partition"]
-                    if not part.get("partitions"):
-                        raise ValueError("layout has no partitions")
+                if part is not None:
                     pprofiles = load_partition_profiles()
                     pprofiles[name] = {"table": part.get("table", "gpt"),
                                        "keep_existing": int(part.get("keep_existing", 0) or 0),
